@@ -1,0 +1,30 @@
+services:
+  netalertx:
+    container_name: netalertx
+    image: jokobsk/netalertx:latest
+    network_mode: host
+    privileged: true
+    restart: unless-stopped
+    init: true
+    volumes:
+      - ./data/config:/data/config
+      - ./data/db:/data/db
+      - ./data/log:/data/log
+      - ./data/api:/data/api
+    environment:
+      - TZ=America/Costa_Rica
+      - PORT=20211
+
+  apprise:
+    container_name: apprise
+    image: caronc/apprise:latest
+    network_mode: host
+    restart: unless-stopped
+
+  opencanary:
+    container_name: opencanary
+    image: cifre/opencanary:latest
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data/opencanary:/var/log

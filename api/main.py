@@ -1,0 +1,346 @@
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+import sqlite3
+import json
+import os
+import io
+import socket
+import qrcode
+import smtplib
+import subprocess
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+from pydantic import BaseModel
+
+app = FastAPI(title="SafeLock API", version="1.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- RUTAS DE ARCHIVOS ---
+NETALERTX_DB = "/root/safeLock_SoC/netalertx/data/db/app.db"
+OPENCANARY_LOG = "/root/safeLock_SoC/netalertx/data/opencanary/opencanary.log"
+P0F_LOG = "/var/log/p0f.log"
+PASSIVEDNS_LOG = "/var/log/passivedns.log"
+CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
+PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
+PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+
+# --- CONFIGURACIÓN SMTP (GMAIL) ---
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "ethancrdr@gmail.com"
+SENDER_PASS = "ptkoqxizhtfnienh"
+
+# --- MODELOS DE DATOS ---
+class UserConfig(BaseModel):
+    email: str
+    frequency: str
+    alerts_enabled: bool
+    admin_ip: str = "" # Campo para la Whitelist
+
+class PackToggle(BaseModel):
+    pack: str
+    enabled: bool
+
+# --- MAPEOS DE LOGS ---
+LOGTYPE_MAP = {
+    4000: ("SSH", "Conexión SSH detectada"),
+    4001: ("SSH", "Handshake SSH - posible reconocimiento"),
+    4002: ("SSH", "Intento de login SSH fallido"),
+    5000: ("FTP", "Conexión FTP detectada"),
+    5001: ("FTP", "Intento de login FTP"),
+    8000: ("HTTP", "Acceso HTTP al honeypot"),
+    8001: ("HTTP", "Petición HTTP sospechosa"),
+    9000: ("Telnet", "Conexión Telnet detectada"),
+    9001: ("Telnet", "Login Telnet intentado"),
+    3306: ("MySQL", "Intento de conexión a base de datos"),
+    3389: ("RDP", "Intento de acceso remoto RDP"),
+}
+
+SEVERITY_MAP = {
+    4000: "media", 4001: "media", 4002: "alta",
+    5000: "media", 5001: "alta",
+    8000: "baja", 8001: "media",
+    9000: "alta", 9001: "alta",
+    3306: "alta", 3389: "alta",
+}
+
+# --- FUNCIONES DE APOYO ---
+def get_db():
+    conn = sqlite3.connect(NETALERTX_DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_my_ip_addr():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+def get_full_config():
+    """Lee toda la configuración persistida"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+    except:
+        return {}
+    return {}
+
+# --- MOTOR DE ENVÍO DE EMAIL ---
+def send_email_alert(subject, recipient, ip, port, service):
+    if not recipient: return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"SafeLock SoC Guard <{SENDER_EMAIL}>"
+        msg["To"] = recipient
+
+        html = f"""
+        <div style="font-family:sans-serif; background:#050608; color:#fff; padding:25px; border:1px solid #ef4444; border-radius:12px; max-width:500px;">
+            <h2 style="color:#ef4444; margin-top:0;">🚨 AMENAZA DETECTADA</h2>
+            <p style="color:#d1d5db;">SafeLock ha detectado un intento de intrusión crítico.</p>
+            <div style="background:#121417; padding:15px; border-radius:8px; border-left:4px solid #ef4444; margin:20px 0;">
+                <p style="margin:5px 0;"><b>IP Origen:</b> <span style="color:#29b5b5;">{ip}</span></p>
+                <p style="margin:5px 0;"><b>Servicio:</b> {service}</p>
+                <p style="margin:5px 0;"><b>Puerto:</b> {port}</p>
+                <p style="margin:5px 0;"><b>Estado:</b> <span style="color:#10b981;">IDENTIFICADO</span></p>
+            </div>
+            <p style="font-size:11px; color:#6b7280; border-top:1px solid #333; padding-top:15px;">
+                Reporte automático SafeLock SoC.
+            </p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASS)
+            server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
+    except Exception as e:
+        print(f"Error SMTP: {e}")
+
+# --- ENDPOINTS ---
+
+@app.get("/")
+def root():
+    return {"status": "SafeLock API operativa", "version": "1.2.0"}
+
+@app.post("/config")
+async def save_config(config: UserConfig, request: Request):
+    """Guarda configuración y registra automáticamente la IP del admin"""
+    try:
+        data = config.dict()
+        # Registramos la IP desde donde se hace la petición como IP de confianza
+        data["admin_ip"] = request.client.host
+
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(data, f)
+        return {"status": "ok", "message": f"Configuración guardada. Admin IP: {data['admin_ip']}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/honeypot")
+def get_honeypot_events(background_tasks: BackgroundTasks):
+    events = []
+    config = get_full_config()
+    admin_email = config.get("email")
+    admin_ip = config.get("admin_ip")
+    alerts_enabled = config.get("alerts_enabled", False)
+
+    try:
+        if os.path.exists(OPENCANARY_LOG):
+            with open(OPENCANARY_LOG, "r") as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        src_ip = entry.get("src_host")
+
+                        # --- FILTRO WHITELIST ---
+                        if admin_ip and src_ip == admin_ip:
+                            continue # Ignora actividad del administrador
+
+                        logtype = entry.get("logtype", 0)
+                        if src_ip:
+                            service, desc = LOGTYPE_MAP.get(logtype, ("Desconocido", "Actividad sospechosa"))
+                            severity = SEVERITY_MAP.get(logtype, "media")
+
+                            event_data = {
+                                "timestamp": entry.get("local_time"),
+                                "src_ip": src_ip,
+                                "dst_port": entry.get("dst_port"),
+                                "service": service,
+                                "description": desc,
+                                "severity": severity
+                            }
+                            events.append(event_data)
+
+                            if severity == "alta" and admin_email and alerts_enabled:
+                                background_tasks.add_task(
+                                    send_email_alert,
+                                    "🚨 ALERTA SOC: Intento de Intrusión",
+                                    admin_email,
+                                    event_data["src_ip"],
+                                    event_data["dst_port"],
+                                    event_data["service"]
+                                )
+                    except: continue
+    except Exception as e:
+        return {"error": str(e), "events": []}
+    events.reverse()
+    return {"total": len(events), "events": events[:100]}
+
+@app.get("/devices")
+def get_devices():
+    try:
+        conn = get_db()
+        cursor = conn.execute("SELECT devMac, devName, devVendor, devLastIP, devPresentLastScan as devStatus, devFirstConnection, devLastConnection, devIsNew, devType FROM Devices WHERE devIsArchived = 0 ORDER BY devLastConnection DESC")
+        devices = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return {"total": len(devices), "devices": devices}
+    except Exception as e: return {"error": str(e), "devices": []}
+
+@app.get("/summary")
+def get_summary():
+    try:
+        conn = get_db()
+        total_devices = conn.execute("SELECT COUNT(*) FROM Devices WHERE devIsArchived = 0").fetchone()[0]
+        new_devices = conn.execute("SELECT COUNT(*) FROM Devices WHERE devIsNew = 1 AND devIsArchived = 0").fetchone()[0]
+        recent_events = conn.execute("SELECT COUNT(*) FROM Events WHERE eve_DateTime > datetime('now', '-24 hours')").fetchone()[0]
+        conn.close()
+        honeypot_data = get_honeypot_events(BackgroundTasks())
+        return {
+            "total_devices": total_devices,
+            "new_devices": new_devices,
+            "events_24h": recent_events,
+            "honeypot_attempts": honeypot_data.get("total", 0)
+        }
+    except Exception as e: return {"error": str(e)}
+
+@app.get("/myip")
+def get_myip():
+    ip = get_my_ip_addr()
+    return {"ip": ip, "portal_url": f"http://{ip}:5173"}
+
+@app.get("/qr")
+def get_qr():
+    ip = get_my_ip_addr()
+    url = f"http://{ip}:5173"
+    img = qrcode.make(url)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
+
+@app.get("/status")
+def get_status():
+    def pihole_active():
+        try:
+            # Busca cualquier contenedor activo que tenga "pihole" en el nombre o imagen
+            result = subprocess.run(
+                "docker ps | grep pihole",
+                shell=True, capture_output=True, text=True
+            )
+            return "pihole" in result.stdout.lower()
+        except:
+            return False
+
+    services = {
+        "netalertx": os.path.exists(NETALERTX_DB),
+        "opencanary": os.path.exists(OPENCANARY_LOG),
+        "p0f": os.path.exists(P0F_LOG),
+        "passivedns": os.path.exists(PASSIVEDNS_LOG),
+        "pihole": pihole_active(),
+    }
+    return {
+        "status": "ok" if all(services.values()) else "degradado",
+        "services": services,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/pihole/stats")
+def get_pihole_stats():
+    try:
+        # Conectamos a la DB de Pi-hole
+        conn = sqlite3.connect(PIHOLE_DB)
+        conn.row_factory = sqlite3.Row
+        curr = conn.cursor()
+
+        # 1. Total de peticiones hoy
+        total = curr.execute("SELECT COUNT(*) FROM queries WHERE timestamp > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+
+        # 2. Total bloqueado hoy (status 1, 4, 5 son bloqueos en Pi-hole)
+        blocked = curr.execute("SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+
+        # 3. Datos para la gráfica (últimas 6 horas)
+        graph_data = []
+        for i in range(6, -1, -1):
+            h_label = f"-{i}h" if i > 0 else "ahora"
+            # Peticiones en ese rango de hora
+            h_total = curr.execute(f"SELECT COUNT(*) FROM queries WHERE timestamp > strftime('%s', 'now', '-{i+1} hours') AND timestamp <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
+            h_blocked = curr.execute(f"SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > strftime('%s', 'now', '-{i+1} hours') AND timestamp <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
+            graph_data.append({"time": h_label, "peticiones": h_total, "bloqueado": h_blocked})
+
+        conn.close()
+
+        pct = round((blocked / total * 100), 1) if total > 0 else 0
+
+        return {
+            "ads_blocked_today": blocked,
+            "dns_queries_today": total,
+            "ads_percentage_today": pct,
+            "graph": graph_data
+        }
+    except Exception as e:
+        return {"error": str(e), "ads_blocked_today": 0, "dns_queries_today": 0, "ads_percentage_today": 0, "graph": []}
+
+@app.get("/pihole/packs")
+def get_pihole_packs():
+    try:
+        conn = sqlite3.connect(PIHOLE_GRAVITY_DB)
+        conn.row_factory = sqlite3.Row
+        curr = conn.cursor()
+        # Buscamos solo las reglas que inyectamos con la etiqueta [PACK_...]
+        rows = curr.execute("SELECT comment, enabled FROM domainlist WHERE comment LIKE '[PACK_%]'").fetchall()
+        conn.close()
+        
+        packs = {}
+        for row in rows:
+            # Limpiamos el nombre: de "[PACK_FAMILY]" pasa a ser "PACK_FAMILY"
+            pack_name = row["comment"].strip("[]")
+            packs[pack_name] = bool(row["enabled"])
+            
+        return packs
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/pihole/packs/toggle")
+def toggle_pihole_pack(payload: PackToggle):
+    try:
+        conn = sqlite3.connect(PIHOLE_GRAVITY_DB)
+        curr = conn.cursor()
+        
+        comment_tag = f"[{payload.pack}]"
+        new_status = 1 if payload.enabled else 0
+        
+        # Actualizamos el estado en la base de datos
+        curr.execute("UPDATE domainlist SET enabled = ? WHERE comment = ?", (new_status, comment_tag))
+        conn.commit()
+        conn.close()
+        
+        # Le decimos a Docker que recargue las listas de Pi-hole sin apagarlo
+        subprocess.run(["docker", "exec", "pihole", "pihole", "reloaddns"], capture_output=True)
+        
+        return {"success": True, "pack": payload.pack, "enabled": payload.enabled}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

@@ -1,0 +1,36 @@
+# Bases de datos
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Credenciales
+config.json
+/api/config.json
+
+# Node modules
+node_modules/
+portal/node_modules/
+
+# Build del portal
+portal/dist/
+
+# Docker volumes
+netalertx/data/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Tailscale
+/etc/tailscale-authkey
+api/venv/
+pihole/etc-pihole/listsCache/
+pihole/etc-pihole/gravity_backups/
+pihole/etc-pihole/config_backups/
+pihole/etc-pihole/*.db
+pihole/etc-pihole/cli_pw
+pihole/etc-pihole/tls*
+pihole/etc-pihole/dhcp.leases
