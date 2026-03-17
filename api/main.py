@@ -11,7 +11,7 @@ import smtplib
 import subprocess
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 app = FastAPI(title="SafeLock API", version="1.2.0")
@@ -226,6 +226,32 @@ def get_devices():
         conn.close()
         return {"total": len(devices), "devices": devices}
     except Exception as e: return {"error": str(e), "devices": []}
+
+@app.get("/honeypot/graph")
+def get_honeypot_graph():
+    try:
+        graph_data = []
+        for i in range(6, -1, -1):
+            h_label = f"-{i}h" if i > 0 else "ahora"
+            cutoff_start = datetime.now() - timedelta(hours=i+1)
+            cutoff_end   = datetime.now() - timedelta(hours=i)
+            count = 0
+            if os.path.exists(OPENCANARY_LOG):
+                with open(OPENCANARY_LOG, "r") as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line.strip())
+                            ts = entry.get("local_time", "")
+                            if ts:
+                                event_time = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                                if cutoff_start <= event_time <= cutoff_end:
+                                    count += 1
+                        except:
+                            continue
+            graph_data.append({"h": h_label, "v": count})
+        return {"graph": graph_data}
+    except Exception as e:
+        return {"graph": [], "error": str(e)}
 
 @app.get("/summary")
 def get_summary():

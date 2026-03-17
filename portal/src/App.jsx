@@ -225,13 +225,14 @@ function Dashboard({ pihole, onOpenPremium, onGoPremium }) {
     return [{ name:"Conocidos", value:total-newC, fill:"var(--teal-brt)" }, { name:"Nuevos", value:newC, fill:"var(--amber)" }];
   }, [devices, summary]);
 
-  const lineData = useMemo(() => {
-    const base = summary?.honeypot_attempts || 0;
-    return [0,1,2,3,4,5].map(h => ({
-      h:`-${5-h}h`,
-      v: Math.max(0, Math.floor(base * (0.1 + Math.random()*0.3)))
-    }));
-  }, [summary]);
+const { data: honeypotGraph } = useAPI("/honeypot/graph", 15000);
+
+const lineData = useMemo(() => {
+  if (honeypotGraph?.graph?.length) {
+    return honeypotGraph.graph;
+  }
+  return [0,1,2,3,4,5,6].map(h => ({ h: `-${6-h}h`, v: 0 }));
+}, [honeypotGraph]);
 
   const pieColors = ["var(--teal-brt)","var(--amber)","var(--red)","var(--text3)","var(--border2)"];
 
