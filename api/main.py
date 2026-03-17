@@ -99,14 +99,22 @@ def get_full_config():
     return {}
 
 # --- MOTOR DE ENVÍO DE EMAIL ---
+# Cooldown de emails — máximo 1 por hora
+_last_email_sent = None
+
 def send_email_alert(subject, recipient, ip, port, service):
+    global _last_email_sent
     if not recipient: return
+    now = datetime.now()
+    if _last_email_sent and (now - _last_email_sent).seconds < 3600:
+        print(f"Email cooldown activo — faltan {3600 - (now - _last_email_sent).seconds}s")
+        return
+    _last_email_sent = now
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"SafeLock SoC Guard <{SENDER_EMAIL}>"
         msg["To"] = recipient
-
         html = f"""
         <div style="font-family:sans-serif; background:#050608; color:#fff; padding:25px; border:1px solid #ef4444; border-radius:12px; max-width:500px;">
             <h2 style="color:#ef4444; margin-top:0;">🚨 AMENAZA DETECTADA</h2>
@@ -150,8 +158,13 @@ async def save_config(config: UserConfig, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Variable para rastrear último evento alertado
+_last_alerted_timestamp = None
+_last_email_sent = None
+
 @app.get("/honeypot")
 def get_honeypot_events(background_tasks: BackgroundTasks):
+    global _last_alerted_timestamp, _last_email_sent
     events = []
     config = get_full_config()
     admin_email = config.get("email")
@@ -165,18 +178,15 @@ def get_honeypot_events(background_tasks: BackgroundTasks):
                     try:
                         entry = json.loads(line.strip())
                         src_ip = entry.get("src_host")
-
-                        # --- FILTRO WHITELIST ---
                         if admin_ip and src_ip == admin_ip:
-                            continue # Ignora actividad del administrador
-
+                            continue
                         logtype = entry.get("logtype", 0)
                         if src_ip:
                             service, desc = LOGTYPE_MAP.get(logtype, ("Desconocido", "Actividad sospechosa"))
                             severity = SEVERITY_MAP.get(logtype, "media")
-
+                            event_timestamp = entry.get("local_time")
                             event_data = {
-                                "timestamp": entry.get("local_time"),
+                                "timestamp": event_timestamp,
                                 "src_ip": src_ip,
                                 "dst_port": entry.get("dst_port"),
                                 "service": service,
@@ -185,21 +195,28 @@ def get_honeypot_events(background_tasks: BackgroundTasks):
                             }
                             events.append(event_data)
 
+                            # Solo alertar si es evento NUEVO y no está en cooldown
                             if severity == "alta" and admin_email and alerts_enabled:
-                                background_tasks.add_task(
-                                    send_email_alert,
-                                    "🚨 ALERTA SOC: Intento de Intrusión",
-                                    admin_email,
-                                    event_data["src_ip"],
-                                    event_data["dst_port"],
-                                    event_data["service"]
-                                )
-                    except: continue
+                                if event_timestamp != _last_alerted_timestamp:
+                                    now = datetime.now()
+                                    if not _last_email_sent or (now - _last_email_sent).seconds >= 3600:
+                                        _last_alerted_timestamp = event_timestamp
+                                        _last_email_sent = now
+                                        background_tasks.add_task(
+                                            send_email_alert,
+                                            "🚨 ALERTA SOC: Intento de Intrusión",
+                                            admin_email,
+                                            event_data["src_ip"],
+                                            event_data["dst_port"],
+                                            event_data["service"]
+                                        )
+                    except:
+                        continue
     except Exception as e:
         return {"error": str(e), "events": []}
+
     events.reverse()
     return {"total": len(events), "events": events[:100]}
-
 @app.get("/devices")
 def get_devices():
     try:
@@ -277,20 +294,18 @@ def get_pihole_stats():
         curr = conn.cursor()
 
         # 1. Total de peticiones hoy
-        total = curr.execute("SELECT COUNT(*) FROM queries WHERE timestamp > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+        total = curr.execute("SELECT COUNT(*) FROM queries WHERE CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-24 hours')").fetchone()[0]
 
-        # 2. Total bloqueado hoy (status 1, 4, 5 son bloqueos en Pi-hole)
-        blocked = curr.execute("SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+        # 2. Total bloqueado hoy
+        blocked = curr.execute("SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-24 hours')").fetchone()[0]
 
         # 3. Datos para la gráfica (últimas 6 horas)
         graph_data = []
         for i in range(6, -1, -1):
             h_label = f"-{i}h" if i > 0 else "ahora"
-            # Peticiones en ese rango de hora
-            h_total = curr.execute(f"SELECT COUNT(*) FROM queries WHERE timestamp > strftime('%s', 'now', '-{i+1} hours') AND timestamp <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
-            h_blocked = curr.execute(f"SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > strftime('%s', 'now', '-{i+1} hours') AND timestamp <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
+            h_total = curr.execute(f"SELECT COUNT(*) FROM queries WHERE CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-{i+1} hours') AND CAST(timestamp AS INTEGER) <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
+            h_blocked = curr.execute(f"SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-{i+1} hours') AND CAST(timestamp AS INTEGER) <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
             graph_data.append({"time": h_label, "peticiones": h_total, "bloqueado": h_blocked})
-
         conn.close()
 
         pct = round((blocked / total * 100), 1) if total > 0 else 0
