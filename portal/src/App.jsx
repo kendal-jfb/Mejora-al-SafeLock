@@ -651,7 +651,7 @@ function PremiumView() {
               <BarChart data={piData?.graph || []}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis dataKey="time" stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} />
-                <YAxis stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} />
+                <YAxis stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} domain={[0, 'auto']} tickCount={5} />
                 <RTooltip content={<CustomTooltip/>} cursor={{fill: "var(--bg3)"}} />
                 <Bar dataKey="peticiones" name="Peticiones" fill="var(--teal-dim)" radius={[2,2,0,0]} />
                 <Bar dataKey="bloqueado" name="Bloqueadas" fill="var(--red)" radius={[2,2,0,0]} />
