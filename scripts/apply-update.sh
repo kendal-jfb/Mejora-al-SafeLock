@@ -61,4 +61,7 @@ if echo "$CHANGED_FILES" | grep -q '^portal/'; then
     echo "[$DATE] Portal reconstruido y reiniciado" >> "$LOG"
 fi
 
+bash "$DIR/scripts/health-check.sh" >> "$LOG" 2>&1
+echo "[$DATE] Health check OK" >> "$LOG"
+
 echo "[$DATE] Actualizacion completada exitosamente" >> "$LOG"
