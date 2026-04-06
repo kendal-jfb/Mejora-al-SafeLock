@@ -458,10 +458,27 @@ function DevicesView() {
                   {d.devIsNew===1 && <span style={{ fontFamily:"var(--mono)", fontSize:8, fontWeight:700, background:"var(--amber-dim)", color:"var(--amber)", border:"1px solid var(--amber)", borderRadius:3, padding:"1px 5px", marginLeft:8, textTransform:"uppercase", verticalAlign:"middle" }}>nuevo</span>}
                 </div>
                 <div style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text3)", marginTop:3 }}>{d.devVendor||"No identificado"}</div>
+                <div className="device-mobile-meta">
+                  <div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", textTransform:"uppercase", marginBottom:3 }}>IP</div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:12, color:"var(--text2)", wordBreak:"break-word" }}>{d.devLastIP}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", textTransform:"uppercase", marginBottom:3 }}>Visto</div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text3)" }}>{timeAgo(d.devLastConnection)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", textTransform:"uppercase", marginBottom:3 }}>Estado</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <Dot color={d.devStatus===1?"var(--ok)":"var(--text4)"}/>
+                      <span style={{ fontFamily:"var(--mono)", fontSize:10, color:d.devStatus===1?"var(--ok)":"var(--text4)" }}>{d.devStatus===1?"online":"offline"}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <span style={{ fontFamily:"var(--mono)", fontSize:12, color:"var(--text2)" }}>{d.devLastIP}</span>
-              <span style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text3)" }}>{timeAgo(d.devLastConnection)}</span>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <span className="hide-mobile" style={{ fontFamily:"var(--mono)", fontSize:12, color:"var(--text2)" }}>{d.devLastIP}</span>
+              <span className="hide-mobile" style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text3)" }}>{timeAgo(d.devLastConnection)}</span>
+              <div className="hide-mobile" style={{ display:"flex", alignItems:"center", gap:6 }}>
                 <Dot color={d.devStatus===1?"var(--ok)":"var(--text4)"}/>
                 <span style={{ fontFamily:"var(--mono)", fontSize:10, color:d.devStatus===1?"var(--ok)":"var(--text4)" }}>{d.devStatus===1?"online":"offline"}</span>
               </div>
@@ -546,9 +563,14 @@ function SettingsView() {
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase" }}>WhatsApp</div>
                 <div style={{ fontSize: 20, color: "var(--title)", fontWeight: 600 }}>+506 2771-9797</div>
               </div>
-              <button onClick={() => window.open("https://wa.me/50627719797", "_blank")} style={{ width: "100%", background: "#25D366", color: "#000", border: "none", borderRadius: 6, padding: 12, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Icon.WhatsApp s={16} c="#000"/> WhatsApp
-              </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button onClick={() => window.open("https://wa.me/50627719797", "_blank")} style={{ width: "100%", background: "#25D366", color: "#000", border: "none", borderRadius: 6, padding: 12, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Icon.WhatsApp s={16} c="#000"/> WhatsApp
+                </button>
+                <button onClick={() => window.open("https://openlocksecurity.com/faq", "_blank")} style={{ width: "100%", background: "var(--bg2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6, padding: 12, cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Icon.Globe s={16}/> FAQ SafeLock
+                </button>
+              </div>
             </div>
           </Panel>
         </div>
@@ -772,6 +794,7 @@ export default function App() {
         .clickable-panel:hover{transform:translateY(-2px);border-color:var(--teal-brt) !important}
         .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:4px;line-height:0}
         .hide-mobile{display:block}
+        .device-mobile-meta{display:none}
         .sidebar-brand{height:60px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0}
         .sidebar-logo{height:30px;width:auto;display:block}
         .theme-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;cursor:pointer;line-height:0;transition:.2s;display:flex;align-items:center}
@@ -790,6 +813,7 @@ export default function App() {
           .table-header{display:none !important}
           .table-row{grid-template-columns:30px 1fr !important}
           .hide-mobile{display:none !important}
+          .device-mobile-meta{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
         }
         @media(max-width:768px){
           .sidebar{position:fixed;height:100%;transform:translateX(-100%)}
