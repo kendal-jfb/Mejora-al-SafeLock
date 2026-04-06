@@ -40,7 +40,7 @@ for svc in \
   safelock-update.timer
 do
   if [ -f "/etc/systemd/system/$svc" ]; then
-    systemctl enable --now  "$svc" >> "$LOG" 2>&1 || true
+    systemctl enable "$svc" >> "$LOG" 2>&1 || true
   fi
 done
 
