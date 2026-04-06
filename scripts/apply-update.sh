@@ -10,6 +10,8 @@ DATE=$(date '+%Y-%m-%d %H:%M:%S')
 cd "$DIR"
 
 PREV=$(git rev-parse HEAD)
+mkdir -p /var/lib/safelock
+echo "$PREV" > /var/lib/safelock/previous_commit
 
 git fetch origin master >> "$LOG" 2>&1
 LOCAL=$(git rev-parse HEAD)
@@ -61,7 +63,12 @@ if echo "$CHANGED_FILES" | grep -q '^portal/'; then
     echo "[$DATE] Portal reconstruido y reiniciado" >> "$LOG"
 fi
 
-bash "$DIR/scripts/health-check.sh" >> "$LOG" 2>&1
-echo "[$DATE] Health check OK" >> "$LOG"
+if bash "$DIR/scripts/health-check.sh" >> "$LOG" 2>&1; then
+    echo "[$DATE] Health check OK" >> "$LOG"
+else
+    echo "[$DATE] Health check fallo - iniciando rollback" >> "$LOG"
+    bash "$DIR/scripts/rollback.sh" >> "$LOG" 2>&1 || true
+    exit 1
+fi
 
 echo "[$DATE] Actualizacion completada exitosamente" >> "$LOG"
