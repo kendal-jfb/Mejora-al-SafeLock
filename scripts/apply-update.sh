@@ -23,6 +23,29 @@ fi
 echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
 
 git pull origin master >> "$LOG" 2>&1
+
+echo "[$DATE] Instalando servicios systemd..." >> "$LOG"
+
+cp -f "$DIR"/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
+cp -f "$DIR"/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
+
+systemctl daemon-reload >> "$LOG" 2>&1
+
+# habilitar servicios clave si existen
+for svc in \
+  safelock-api.service \
+  safelock-portal.service \
+  safelock-network.service \
+  safelock-pihole-setup.service \
+  safelock-update.timer
+do
+  if [ -f "/etc/systemd/system/$svc" ]; then
+    systemctl enable "$svc" >> "$LOG" 2>&1 || true
+  fi
+done
+
+echo "[$DATE] systemd actualizado" >> "$LOG"
+
 NEW=$(git rev-parse HEAD)
 
 systemctl restart safelock-api
