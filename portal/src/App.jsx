@@ -3,9 +3,10 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, LineChart, Line, CartesianGrid
 } from "recharts";
+import openLockLogoDark from "./assets/LogoBase.png";
+import openLockLogoLight from "./assets/LogoNegro.png";
 
 const API = "http://" + window.location.hostname + ":8090";
-const LOGO = "data:image/png;base64,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";
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────────
 const Icon = {
@@ -60,6 +61,13 @@ function timeAgo(dt) {
   if (m < 1) return "ahora";
   if (m < 60) return `${m}m`;
   return `${Math.floor(m / 60)}h`;
+}
+
+function wasSeenWithinLast24Hours(dt) {
+  if (!dt) return false;
+  const lastSeenAt = new Date(dt).getTime();
+  if (Number.isNaN(lastSeenAt)) return false;
+  return Date.now() - lastSeenAt <= 24 * 60 * 60 * 1000;
 }
 
 function devIcon(vendor = "", type = "") {
@@ -409,12 +417,20 @@ const lineData = useMemo(() => {
 function DevicesView() {
   const { data, loading } = useAPI("/devices", 30000);
   const [search, setSearch] = useState("");
-  const devs = (data?.devices||[]).filter(d =>
-    !search ||
-    (d.devName && d.devName.toLowerCase().includes(search.toLowerCase())) ||
-    (d.devLastIP && d.devLastIP.includes(search)) ||
-    (d.devVendor && d.devVendor.toLowerCase().includes(search.toLowerCase()))
-  );
+  const devs = useMemo(() => (
+    (data?.devices || []).filter((d) => {
+      const shouldShowByStatus = d.devStatus === 1 || wasSeenWithinLast24Hours(d.devLastConnection);
+      if (!shouldShowByStatus) return false;
+      if (!search) return true;
+
+      const query = search.toLowerCase();
+      return (
+        (d.devName && d.devName.toLowerCase().includes(query)) ||
+        (d.devLastIP && d.devLastIP.includes(search)) ||
+        (d.devVendor && d.devVendor.toLowerCase().includes(query))
+      );
+    })
+  ), [data, search]);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       <div style={{ position:"relative" }}>
@@ -756,6 +772,8 @@ export default function App() {
         .clickable-panel:hover{transform:translateY(-2px);border-color:var(--teal-brt) !important}
         .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:4px;line-height:0}
         .hide-mobile{display:block}
+        .sidebar-brand{height:60px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+        .sidebar-logo{height:30px;width:auto;display:block}
         .theme-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;cursor:pointer;line-height:0;transition:.2s;display:flex;align-items:center}
         .theme-btn:hover{border-color:var(--teal-brt)}
         ::-webkit-scrollbar{width:4px}
@@ -776,14 +794,15 @@ export default function App() {
         @media(max-width:768px){
           .sidebar{position:fixed;height:100%;transform:translateX(-100%)}
           .sidebar.open{transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,.5)}
+          .sidebar-logo{height:24px}
           .hamburger{display:flex}
           .scroll-area{padding:16px}
         }
       `}</style>
 
       <aside className={`sidebar ${menuOpen?"open":""}`}>
-        <div style={{ height:60, display:"flex", alignItems:"center", padding:"0 20px", borderBottom:"1px solid var(--border)", flexShrink:0 }}>
-          <img src={LOGO} alt="OpenLock" style={{ height:22, filter:theme==="light"?"invert(1)":"none" }}/>
+        <div className="sidebar-brand">
+          <img src={theme==="light" ? openLockLogoLight : openLockLogoDark} alt="OpenLock" className="sidebar-logo" />
         </div>
         <div style={{ padding:"20px 12px", display:"flex", flexDirection:"column", gap:4 }}>
           <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", paddingLeft:12, marginBottom:6, letterSpacing:".12em", textTransform:"uppercase" }}>General</div>
