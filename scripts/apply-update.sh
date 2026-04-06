@@ -47,11 +47,14 @@ done
 echo "[$DATE] systemd actualizado" >> "$LOG"
 
 NEW=$(git rev-parse HEAD)
+CHANGED_FILES=$(git diff --name-only "$PREV" "$NEW")
 
-systemctl restart safelock-api
-echo "[$DATE] safelock-api reiniciado" >> "$LOG"
+if echo "$CHANGED_FILES" | grep -Eq '^(api/|scripts/|systemd/)'; then
+    systemctl restart safelock-api
+    echo "[$DATE] safelock-api reiniciado" >> "$LOG"
+fi
 
-if git diff --name-only "$PREV" "$NEW" | grep -q '^portal/'; then
+if echo "$CHANGED_FILES" | grep -q '^portal/'; then
     cd "$DIR/portal"
     npm run build >> "$LOG" 2>&1
     systemctl restart safelock-portal
