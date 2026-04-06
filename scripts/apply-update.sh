@@ -24,9 +24,7 @@ fi
 
 echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
 
-git pull origin master >> "$LOG" 2>&1
-
-echo "[$DATE] Instalando servicios systemd..." >> "$LOG"
+git reset --hard origin/master >> "$LOG" 2>&1
 
 cp -f "$DIR"/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
 cp -f "$DIR"/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
