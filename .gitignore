@@ -34,3 +34,9 @@ pihole/etc-pihole/*.db
 pihole/etc-pihole/cli_pw
 pihole/etc-pihole/tls*
 pihole/etc-pihole/dhcp.leases
+
+*.bak
+*.img
+*.img.gz
+api/last_report.json
+pihole/etc-pihole/versions
