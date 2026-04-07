@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock Heartbeat
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/safeLock_SoC/scripts/heartbeat.sh
+User=root

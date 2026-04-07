@@ -37,12 +37,18 @@ for svc in \
   safelock-portal.service \
   safelock-network.service \
   safelock-pihole-setup.service \
-  safelock-update.timer
+  safelock-update.timer \
+  safelock-heartbeat.timer
 do
   if [ -f "/etc/systemd/system/$svc" ]; then
     systemctl enable "$svc" >> "$LOG" 2>&1 || true
   fi
 done
+
+if [ -f "/etc/systemd/system/safelock-heartbeat.timer" ]; then
+    systemctl restart safelock-heartbeat.timer >> "$LOG" 2>&1 || true
+    echo "[$DATE] safelock-heartbeat.timer reiniciado" >> "$LOG"
+fi
 
 echo "[$DATE] systemd actualizado" >> "$LOG"
 
