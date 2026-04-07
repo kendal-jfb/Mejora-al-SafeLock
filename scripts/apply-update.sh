@@ -18,13 +18,11 @@ LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/master)
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-    echo "[$DATE] Sin cambios" >> "$LOG"
-    exit 0
+    echo "[$DATE] Sin cambios en repo, pero aplicando configuracion..." >> "$LOG"
+else
+    echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
+    git reset --hard origin/master >> "$LOG" 2>&1
 fi
-
-echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
-
-git reset --hard origin/master >> "$LOG" 2>&1
 
 cp -f "$DIR"/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
 cp -f "$DIR"/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
