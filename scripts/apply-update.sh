@@ -57,7 +57,6 @@ if echo "$CHANGED_FILES" | grep -Eq '^(api/|scripts/|systemd/)'; then
     systemctl restart safelock-api
     echo "[$DATE] safelock-api reiniciado" >> "$LOG"
     sleep 5
-    echo "[$DATE] safelock-api reiniciado" >> "$LOG"
 fi
 
 if echo "$CHANGED_FILES" | grep -q '^portal/'; then
