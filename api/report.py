@@ -13,10 +13,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-SMTP_SERVER    = "smtp.gmail.com"
-SMTP_PORT      = 587
-SENDER_EMAIL   = "ethancrdr@gmail.com"
-SENDER_PASS    = "ptkoqxizhtfnienh"
+SMTP_SERVER  = "mail.openlocksecurity.com"
+SMTP_PORT    = 587
+SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
+SENDER_PASS  = "Hy7Vhj%WssN7Uy"
 CONFIG_FILE    = "/root/safeLock_SoC/api/config.json"
 NETALERTX_DB   = "/root/safeLock_SoC/netalertx/data/db/app.db"
 OPENCANARY_LOG = "/root/safeLock_SoC/netalertx/data/opencanary/opencanary.log"
