@@ -33,10 +33,10 @@ PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
 PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
 
 # --- CONFIGURACIÓN SMTP (GMAIL) ---
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "ethancrdr@gmail.com"
-SENDER_PASS = "ptkoqxizhtfnienh"
+SMTP_SERVER  = "mail.openlocksecurity.com"
+SMTP_PORT    = 587
+SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
+SENDER_PASS  = "Hy7Vhj%WssN7Uy"
 
 # --- MODELOS DE DATOS ---
 class UserConfig(BaseModel):
