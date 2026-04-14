@@ -1,0 +1,18 @@
+[Unit]
+Description=SafeLock Post Factory Tasks
+Wants=docker.service network-online.target
+After=docker.service network-online.target safelock-factory.service
+ConditionPathExists=/etc/safelock-factory.done
+ConditionPathExists=!/etc/safelock-postfactory.done
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/root/safeLock_SoC/post_factory.sh
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

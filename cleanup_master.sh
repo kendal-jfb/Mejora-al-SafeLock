@@ -39,6 +39,8 @@ echo "[7/10] Vaciando logs..."
 : > /var/log/safelock-factory.log || true
 : > /var/log/safelock-postfactory.log || true
 : > /var/log/safelock-update.log || true
+: > /var/log/tailscale-autoconnect.log || true
+: > /var/log/connectivity-watchdog.log || true
 : > /var/log/safelock-ip-lock.log || true
 : > /var/log/heartbeat.log || true
 : > /var/log/p0f.log || true
@@ -57,6 +59,9 @@ for s in \
   safelock-postfactory \
   tailscaled \
   tailscale-autoconnect \
+  connectivity-watchdog.timer \
+  safelock-network \
+  safelock-network.timer \
   docker \
   safelock-api \
   safelock-portal \

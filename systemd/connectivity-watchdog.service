@@ -1,0 +1,12 @@
+[Unit]
+Description=SafeLock Connectivity Watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/root/safeLock_SoC/scripts/connectivity-watchdog.sh
+TimeoutStartSec=180
+StandardOutput=journal
+StandardError=journal

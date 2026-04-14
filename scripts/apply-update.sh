@@ -31,10 +31,15 @@ systemctl daemon-reload >> "$LOG" 2>&1
 
 # habilitar servicios clave si existen
 for svc in \
+  safelock-factory.service \
+  safelock-postfactory.service \
   safelock-api.service \
   safelock-portal.service \
   safelock-network.service \
   safelock-pihole-setup.service \
+  tailscale-autoconnect.service \
+  connectivity-watchdog.timer \
+  safelock-network.timer \
   safelock-update.timer \
   safelock-heartbeat.timer
 do
@@ -46,6 +51,16 @@ done
 if [ -f "/etc/systemd/system/safelock-heartbeat.timer" ]; then
     systemctl restart safelock-heartbeat.timer >> "$LOG" 2>&1 || true
     echo "[$DATE] safelock-heartbeat.timer reiniciado" >> "$LOG"
+fi
+
+if [ -f "/etc/systemd/system/connectivity-watchdog.timer" ]; then
+    systemctl restart connectivity-watchdog.timer >> "$LOG" 2>&1 || true
+    echo "[$DATE] connectivity-watchdog.timer reiniciado" >> "$LOG"
+fi
+
+if [ -f "/etc/systemd/system/safelock-network.timer" ]; then
+    systemctl restart safelock-network.timer >> "$LOG" 2>&1 || true
+    echo "[$DATE] safelock-network.timer reiniciado" >> "$LOG"
 fi
 
 echo "[$DATE] systemd actualizado" >> "$LOG"

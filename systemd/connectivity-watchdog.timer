@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SafeLock connectivity watchdog periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=connectivity-watchdog.service
+
+[Install]
+WantedBy=timers.target

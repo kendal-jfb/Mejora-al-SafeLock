@@ -1,0 +1,17 @@
+[Unit]
+Description=Tailscale Auto Connect
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service
+ConditionPathExists=/etc/tailscale-authkey
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/root/safeLock_SoC/scripts/tailscale-autoconnect.sh
+Restart=on-failure
+RestartSec=15
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=SafeLock Factory First Boot
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service
+ConditionPathExists=!/etc/safelock-factory.done
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/root/safeLock_SoC/install/factory_setup.sh
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

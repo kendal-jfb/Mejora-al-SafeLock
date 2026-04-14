@@ -1,0 +1,10 @@
+[Unit]
+Description=SafeLock Network Auto-Update Timer
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=5min
+Unit=safelock-network.service
+
+[Install]
+WantedBy=timers.target

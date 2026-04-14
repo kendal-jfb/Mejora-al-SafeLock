@@ -1,0 +1,12 @@
+[Unit]
+Description=SafeLock Network Auto-Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/safeLock_SoC/scripts/update_network.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

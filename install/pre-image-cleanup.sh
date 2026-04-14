@@ -3,15 +3,13 @@ set -e
 
 echo "=== SafeLock Pre-Image Cleanup ==="
 
-# Archivos a eliminar
 rm -f /etc/safelock-id
 rm -f /etc/safelock-ip-lock
 rm -f /etc/safelock-factory.done
+rm -f /etc/safelock-postfactory.done
 
-# Vaciar machine-id
 echo -n > /etc/machine-id
 
-# Limpiar Tailscale state
 rm -rf /var/lib/tailscale/*
 
 echo "✓ Limpieza completada"
