@@ -13,8 +13,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-SMTP_SERVER  = "mail.openlocksecurity.com"
-SMTP_PORT    = 587
+SMTP_SERVER  = "bh8912.banahosting.com"
+SMTP_PORT    = 465
 SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
 SENDER_PASS  = "Hy7Vhj%WssN7Uy"
 CONFIG_FILE    = "/root/safeLock_SoC/api/config.json"
@@ -238,8 +238,7 @@ def send_report(recipient, subject, html):
         msg["From"]    = f"SafeLock Reports <{SENDER_EMAIL}>"
         msg["To"]      = recipient
         msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
             server.login(SENDER_EMAIL, SENDER_PASS)
             server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
         print(f"[OK] Reporte enviado a {recipient}")

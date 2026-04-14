@@ -32,9 +32,9 @@ CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
 PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
 PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
 
-# --- CONFIGURACIÓN SMTP (GMAIL) ---
-SMTP_SERVER  = "mail.openlocksecurity.com"
-SMTP_PORT    = 587
+# --- CONFIGURACIÓN SMTP ---
+SMTP_SERVER  = "bh8912.banahosting.com"
+SMTP_PORT    = 465
 SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
 SENDER_PASS  = "Hy7Vhj%WssN7Uy"
 
@@ -131,8 +131,7 @@ def send_email_alert(subject, recipient, ip, port, service):
         </div>
         """
         msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
             server.login(SENDER_EMAIL, SENDER_PASS)
             server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
     except Exception as e:
