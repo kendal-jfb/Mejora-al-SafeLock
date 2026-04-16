@@ -3,8 +3,8 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, LineChart, Line, CartesianGrid
 } from "recharts";
-import openLockLogoDark from "./assets/LogoNegro.png";
-import openLockLogoLight from "./assets/LogoBase.png";
+import openLockLogoDark from "./assets/LogoBase.png";
+import openLockLogoLight from "./assets/LogoNegro.png";
 
 const API = "http://" + window.location.hostname + ":8090";
 
