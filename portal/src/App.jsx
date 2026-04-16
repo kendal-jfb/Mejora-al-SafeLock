@@ -3,8 +3,8 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, LineChart, Line, CartesianGrid
 } from "recharts";
-import openLockLogoDark from "./assets/LogoBase.png";
-import openLockLogoLight from "./assets/LogoNegro.png";
+import openLockLogoBase from "./assets/LogoBase.png";
+import openLockLogoDark from "./assets/LogoOscuroHD.png";
 
 const API = "http://" + window.location.hostname + ":8090";
 
@@ -826,7 +826,7 @@ export default function App() {
 
       <aside className={`sidebar ${menuOpen?"open":""}`}>
         <div className="sidebar-brand">
-          <img src={theme==="light" ? openLockLogoLight : openLockLogoDark} alt="OpenLock" className="sidebar-logo" />
+          <img src={theme==="dark" ? openLockLogoDark : openLockLogoBase} alt="OpenLock" className="sidebar-logo" />
         </div>
         <div style={{ padding:"20px 12px", display:"flex", flexDirection:"column", gap:4 }}>
           <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", paddingLeft:12, marginBottom:6, letterSpacing:".12em", textTransform:"uppercase" }}>General</div>
