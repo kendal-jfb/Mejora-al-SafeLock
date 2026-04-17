@@ -6,7 +6,6 @@ import json
 import os
 import io
 import socket
-import platform
 import qrcode
 import smtplib
 import subprocess
@@ -149,25 +148,6 @@ def get_mac_addr(interface=None):
             continue
     return "—"
 
-def get_hardware_model():
-    return (
-        read_first_existing([
-            "/proc/device-tree/model",
-            "/sys/devices/virtual/dmi/id/product_name",
-            "/sys/devices/virtual/dmi/id/board_name",
-        ])
-        or platform.machine()
-        or "Desconocido"
-    )
-
-def get_system_label():
-    pretty_name = read_first_existing(["/etc/os-release"])
-    if pretty_name:
-        for line in pretty_name.splitlines():
-            if line.startswith("PRETTY_NAME="):
-                return line.split("=", 1)[1].strip().strip('"')
-    return f"{platform.system()} {platform.release()}".strip()
-
 def get_system_info():
     interface = get_primary_interface()
     hostname = socket.gethostname() or "—"
@@ -178,8 +158,8 @@ def get_system_info():
         "portal_url": f"http://{ip_addr}:5173",
         "primary_interface": interface or "—",
         "mac_address": get_mac_addr(interface),
-        "hardware": get_hardware_model(),
-        "system": get_system_label(),
+        "hardware": "SafeLock V2",
+        "system": "SafeLockOS",
     }
 
 def get_full_config():
