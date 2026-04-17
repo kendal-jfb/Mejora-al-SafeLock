@@ -6,6 +6,7 @@ import json
 import os
 import io
 import socket
+import platform
 import qrcode
 import smtplib
 import subprocess
@@ -87,6 +88,99 @@ def get_my_ip_addr():
         return "127.0.0.1"
     finally:
         s.close()
+
+def read_first_existing(paths):
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    value = f.read().strip()
+                if value:
+                    return value
+        except:
+            continue
+    return None
+
+def get_primary_interface():
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        parts = result.stdout.strip().split()
+        if "dev" in parts:
+            idx = parts.index("dev")
+            if idx + 1 < len(parts):
+                return parts[idx + 1]
+    except:
+        pass
+
+    try:
+        for name in os.listdir("/sys/class/net"):
+            if name == "lo":
+                continue
+            if os.path.exists(f"/sys/class/net/{name}/device"):
+                return name
+    except:
+        pass
+    return None
+
+def get_mac_addr(interface=None):
+    candidates = []
+    if interface:
+        candidates.append(interface)
+
+    try:
+        for name in os.listdir("/sys/class/net"):
+            if name not in candidates and name != "lo":
+                candidates.append(name)
+    except:
+        pass
+
+    for name in candidates:
+        try:
+            with open(f"/sys/class/net/{name}/address", "r", encoding="utf-8") as f:
+                mac = f.read().strip().upper()
+            if mac and mac != "00:00:00:00:00:00":
+                return mac
+        except:
+            continue
+    return "—"
+
+def get_hardware_model():
+    return (
+        read_first_existing([
+            "/proc/device-tree/model",
+            "/sys/devices/virtual/dmi/id/product_name",
+            "/sys/devices/virtual/dmi/id/board_name",
+        ])
+        or platform.machine()
+        or "Desconocido"
+    )
+
+def get_system_label():
+    pretty_name = read_first_existing(["/etc/os-release"])
+    if pretty_name:
+        for line in pretty_name.splitlines():
+            if line.startswith("PRETTY_NAME="):
+                return line.split("=", 1)[1].strip().strip('"')
+    return f"{platform.system()} {platform.release()}".strip()
+
+def get_system_info():
+    interface = get_primary_interface()
+    hostname = socket.gethostname() or "—"
+    ip_addr = get_my_ip_addr()
+    return {
+        "hostname": hostname,
+        "local_ip": ip_addr,
+        "portal_url": f"http://{ip_addr}:5173",
+        "primary_interface": interface or "—",
+        "mac_address": get_mac_addr(interface),
+        "hardware": get_hardware_model(),
+        "system": get_system_label(),
+    }
 
 def get_full_config():
     """Lee toda la configuración persistida"""
@@ -271,13 +365,17 @@ def get_summary():
 
 @app.get("/myip")
 def get_myip():
-    ip = get_my_ip_addr()
-    return {"ip": ip, "portal_url": f"http://{ip}:5173"}
+    info = get_system_info()
+    return {"ip": info["local_ip"], "portal_url": info["portal_url"]}
+
+@app.get("/system-info")
+def get_system_info_endpoint():
+    return get_system_info()
 
 @app.get("/qr")
 def get_qr():
-    ip = get_my_ip_addr()
-    url = f"http://{ip}:5173"
+    info = get_system_info()
+    url = info["portal_url"]
     img = qrcode.make(url)
     buf = io.BytesIO()
     img.save(buf, format="PNG")

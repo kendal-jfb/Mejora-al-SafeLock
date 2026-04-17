@@ -490,7 +490,7 @@ function DevicesView() {
 }
 
 function SettingsView() {
-  const { data: ipData } = useAPI("/myip", 60000);
+  const { data: systemInfo } = useAPI("/system-info", 60000);
   const [email, setEmail] = useState(() => localStorage.getItem("report_email") || "");
   const [freq, setFreq] = useState(() => localStorage.getItem("report_freq") || "semanal");
   const [saved, setSaved] = useState(false);
@@ -579,7 +579,13 @@ function SettingsView() {
           <Panel>
             <PHead title="Información del Sistema" icon={<Icon.Cpu s={14}/>}/>
             <div style={{ padding: "8px 0" }}>
-              {[["Hostname", "safelock.local"], ["IP local", ipData?.ip || "—"], ["Hardware", "RK3566 · 4GB"], ["Sistema", "Armbian Linux"]].map(([k, v], i, arr) => (
+              {[
+                ["Hostname", systemInfo?.hostname || "—"],
+                ["IP local", systemInfo?.local_ip || "—"],
+                ["MAC address", systemInfo?.mac_address || "—"],
+                ["Hardware", systemInfo?.hardware || "—"],
+                ["Sistema", systemInfo?.system || "—"]
+              ].map(([k, v], i, arr) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "11px 16px", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
                   <span style={{ fontSize: 13, color: "var(--text2)" }}>{k}</span>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--title)" }}>{v}</span>
