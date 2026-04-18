@@ -6,6 +6,7 @@ DONE_FILE="/etc/safelock-factory.done"
 NET_IF="end0"
 SAFELOCK_ID_FILE="/etc/safelock-id"
 TAILSCALE_AUTHKEY_FILE="/etc/tailscale-authkey"
+HOSTNAME_FILE="/etc/hostname"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [FACTORY] $*" | tee -a "$LOG"
@@ -14,6 +15,29 @@ log() {
 fail() {
     log "ERROR: $*"
     exit 1
+}
+
+set_static_hostname() {
+    local new_hostname="$1"
+    local current_hostname
+
+    current_hostname="$(cat "$HOSTNAME_FILE" 2>/dev/null || hostname 2>/dev/null || true)"
+
+    if [ "$current_hostname" != "$new_hostname" ]; then
+        printf '%s\n' "$new_hostname" > "$HOSTNAME_FILE"
+        hostname "$new_hostname" || true
+        log "Hostname configurado: $new_hostname"
+    else
+        log "Hostname ya configurado: $new_hostname"
+    fi
+}
+
+tailscale_is_running() {
+    tailscale status --json 2>/dev/null | grep -q '"BackendState":"Running"'
+}
+
+tailscale_has_ipv4() {
+    tailscale ip -4 2>/dev/null | grep -q '.'
 }
 
 mkdir -p "$(dirname "$LOG")"
@@ -51,6 +75,9 @@ echo "safelock-${MAC_ADDRESS}" > "$SAFELOCK_ID_FILE"
 chmod 644 "$SAFELOCK_ID_FILE"
 log "Device ID generado: safelock-${MAC_ADDRESS}"
 
+TAILSCALE_HOSTNAME="safelock-${MAC_ADDRESS}"
+set_static_hostname "$TAILSCALE_HOSTNAME"
+
 HAS_IP=0
 for i in $(seq 1 30); do
     if ip -4 addr show dev "$NET_IF" | grep -q "inet "; then
@@ -77,13 +104,21 @@ done
 
 AUTHKEY=$(tr -d '\r\n' < "$TAILSCALE_AUTHKEY_FILE")
 
-if tailscale status --json 2>/dev/null | grep -q '"BackendState":"Running"'; then
-    log "Tailscale ya estaba activo"
+if tailscale_is_running && tailscale_has_ipv4; then
+    log "Tailscale ya estaba activo con IPv4 asignada"
 else
     TS_UP=0
     for i in $(seq 1 10); do
-        if tailscale up --authkey="$AUTHKEY" --accept-dns=false --advertise-tags=tag:safelock; then
-            TS_UP=1
+        if tailscale up --authkey="$AUTHKEY" --hostname="$TAILSCALE_HOSTNAME" --accept-dns=false --advertise-tags=tag:safelock; then
+            for j in $(seq 1 15); do
+                if tailscale_is_running && tailscale_has_ipv4; then
+                    TS_UP=1
+                    break
+                fi
+                sleep 2
+            done
+        fi
+        if [ "$TS_UP" -eq 1 ]; then
             break
         fi
         log "tailscale up fallo... intento $i/10"

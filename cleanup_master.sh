@@ -20,6 +20,7 @@ rm -rf /var/lib/tailscale/*
 
 echo "[4/10] machine-id se limpia al final manualmente antes del dd"
 # NO vaciar aqui para evitar que se regenere antes de tiempo
+rm -f /var/lib/dbus/machine-id || true
 
 echo "[5/10] Dejando NetAlertX limpio..."
 if [ -f /root/safeLock_SoC/netalertx/data/db/app.db ]; then

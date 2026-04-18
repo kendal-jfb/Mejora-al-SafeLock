@@ -9,11 +9,13 @@ rm -f /etc/safelock-factory.done
 rm -f /etc/safelock-postfactory.done
 
 echo -n > /etc/machine-id
+rm -f /var/lib/dbus/machine-id
 
 rm -rf /var/lib/tailscale/*
 
 echo "✓ Limpieza completada"
 echo "✓ Host keys SSH: CONSERVADAS"
 echo "✓ /etc/tailscale-authkey: CONSERVADA"
+echo "✓ Hostname unico: se regenerara en primer arranque"
 echo ""
 echo "Listo para crear imagen maestra"
