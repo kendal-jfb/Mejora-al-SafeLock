@@ -1,43 +1,21 @@
 #!/bin/bash
 set -u -o pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/../scripts/tailscale-common.sh"
+
 LOG="/var/log/safelock-factory.log"
 DONE_FILE="/etc/safelock-factory.done"
 NET_IF="end0"
 SAFELOCK_ID_FILE="/etc/safelock-id"
-TAILSCALE_AUTHKEY_FILE="/etc/tailscale-authkey"
-HOSTNAME_FILE="/etc/hostname"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [FACTORY] $*" | tee -a "$LOG"
+    ts_log "$LOG" "[FACTORY] $*"
 }
 
 fail() {
     log "ERROR: $*"
     exit 1
-}
-
-set_static_hostname() {
-    local new_hostname="$1"
-    local current_hostname
-
-    current_hostname="$(cat "$HOSTNAME_FILE" 2>/dev/null || hostname 2>/dev/null || true)"
-
-    if [ "$current_hostname" != "$new_hostname" ]; then
-        printf '%s\n' "$new_hostname" > "$HOSTNAME_FILE"
-        hostname "$new_hostname" || true
-        log "Hostname configurado: $new_hostname"
-    else
-        log "Hostname ya configurado: $new_hostname"
-    fi
-}
-
-tailscale_is_running() {
-    tailscale status --json 2>/dev/null | grep -q '"BackendState":"Running"'
-}
-
-tailscale_has_ipv4() {
-    tailscale ip -4 2>/dev/null | grep -q '.'
 }
 
 mkdir -p "$(dirname "$LOG")"
@@ -63,6 +41,14 @@ fi
 
 mkdir -p /var/lib/dbus
 ln -sf /etc/machine-id /var/lib/dbus/machine-id
+log "machine-id enlazado para dbus"
+
+if ! ls /etc/ssh/ssh_host_* >/dev/null 2>&1; then
+    ssh-keygen -A || fail "No se pudieron regenerar las host keys SSH"
+    log "Host keys SSH regeneradas"
+else
+    log "Host keys SSH ya presentes"
+fi
 
 if [ ! -r "/sys/class/net/$NET_IF/address" ]; then
     fail "No existe la interfaz $NET_IF o no tiene address"
@@ -76,57 +62,31 @@ chmod 644 "$SAFELOCK_ID_FILE"
 log "Device ID generado: safelock-${MAC_ADDRESS}"
 
 TAILSCALE_HOSTNAME="safelock-${MAC_ADDRESS}"
-set_static_hostname "$TAILSCALE_HOSTNAME"
+ts_set_static_hostname "$TAILSCALE_HOSTNAME"
 
-HAS_IP=0
-for i in $(seq 1 30); do
-    if ip -4 addr show dev "$NET_IF" | grep -q "inet "; then
-        HAS_IP=1
-        break
-    fi
-    log "Esperando IP en $NET_IF... intento $i/30"
-    sleep 2
-done
+if ! ts_wait_for_network 120; then
+    fail "La red o el DNS no estuvieron listos a tiempo"
+fi
+log "Red util confirmada"
 
-[ "$HAS_IP" -eq 1 ] || fail "La interfaz $NET_IF no obtuvo IP"
+if ! ts_start_daemon_if_needed; then
+    fail "tailscaled no arranco"
+fi
+log "tailscaled activo"
 
-TS_OK=0
-for i in $(seq 1 30); do
-    if systemctl is-active --quiet tailscaled; then
-        TS_OK=1
-        break
-    fi
-    log "Esperando tailscaled... intento $i/30"
-    sleep 2
-done
-
-[ "$TS_OK" -eq 1 ] || fail "tailscaled no arranco"
-
-AUTHKEY=$(tr -d '\r\n' < "$TAILSCALE_AUTHKEY_FILE")
-
-if tailscale_is_running && tailscale_has_ipv4; then
+if ts_running_with_ipv4; then
     log "Tailscale ya estaba activo con IPv4 asignada"
 else
-    TS_UP=0
-    for i in $(seq 1 10); do
-        if tailscale up --authkey="$AUTHKEY" --hostname="$TAILSCALE_HOSTNAME" --accept-dns=false --advertise-tags=tag:safelock; then
-            for j in $(seq 1 15); do
-                if tailscale_is_running && tailscale_has_ipv4; then
-                    TS_UP=1
-                    break
-                fi
-                sleep 2
-            done
+    if ! ts_needs_login; then
+        log "tailscaled activo sin requerir login; se espera siguiente ciclo de watchdog"
+    else
+        if ts_run_up "$TAILSCALE_HOSTNAME" "$(ts_authkey)"; then
+            sleep 3
         fi
-        if [ "$TS_UP" -eq 1 ]; then
-            break
-        fi
-        log "tailscale up fallo... intento $i/10"
-        sleep 5
-    done
 
-    [ "$TS_UP" -eq 1 ] || fail "No se pudo registrar Tailscale"
-    log "Tailscale registrado correctamente"
+        ts_running_with_ipv4 || fail "No se pudo registrar Tailscale"
+        log "Tailscale registrado correctamente"
+    fi
 fi
 
 touch "$DONE_FILE"

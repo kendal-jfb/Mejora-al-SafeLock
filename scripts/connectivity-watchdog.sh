@@ -1,97 +1,84 @@
 #!/bin/bash
 set -u -o pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/tailscale-common.sh"
+
 LOG_FILE="/var/log/connectivity-watchdog.log"
-AUTHKEY_FILE="/etc/tailscale-authkey"
-HOSTNAME_FILE="/etc/hostname"
-NET_IF="end0"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WATCHDOG] $1" | tee -a "$LOG_FILE"
+    ts_log "$LOG_FILE" "[WATCHDOG] $*"
 }
 
-get_tailscale_hostname() {
-    local mac_address
-
-    if [ ! -r "/sys/class/net/$NET_IF/address" ]; then
-        log "No existe la interfaz $NET_IF para derivar hostname."
-        return 1
-    fi
-
-    mac_address="$(tr -d ':\r\n' < "/sys/class/net/$NET_IF/address")"
-    [ -n "$mac_address" ] || return 1
-    printf 'safelock-%s\n' "$mac_address"
-}
-
-set_static_hostname() {
-    local new_hostname="$1"
-    local current_hostname
-
-    current_hostname="$(cat "$HOSTNAME_FILE" 2>/dev/null || hostname 2>/dev/null || true)"
-
-    if [ "$current_hostname" != "$new_hostname" ]; then
-        printf '%s\n' "$new_hostname" > "$HOSTNAME_FILE"
-        hostname "$new_hostname" || true
-        log "Hostname configurado: $new_hostname"
-    fi
-}
-
-tailscale_is_running() {
-    tailscale status --json 2>/dev/null | grep -q '"BackendState":"Running"'
-}
-
-tailscale_has_ipv4() {
-    tailscale ip -4 2>/dev/null | grep -q '.'
-}
-
-mkdir -p "$(dirname "$LOG_FILE")"
-touch "$LOG_FILE"
-chmod 644 "$LOG_FILE"
-
-if ! systemctl is-active --quiet tailscaled; then
-    log "tailscaled inactivo; iniciando servicio."
-    systemctl start tailscaled || true
+exec 9>"$TAILSCALE_LOCK_FILE"
+if ! flock -n 9; then
+    log "Otro proceso de recuperacion de Tailscale ya esta corriendo."
+    exit 0
 fi
 
-for i in $(seq 1 15); do
-    if systemctl is-active --quiet tailscaled; then
-        break
-    fi
-    sleep 2
-done
+if ! ts_wait_for_network 30; then
+    log "La red o el DNS no estan listos; se reintentara en el siguiente ciclo."
+    exit 1
+fi
 
-if ! systemctl is-active --quiet tailscaled; then
+if ! ts_start_daemon_if_needed; then
     log "tailscaled sigue inactivo despues del reintento."
     exit 1
 fi
 
-TAILSCALE_HOSTNAME="$(get_tailscale_hostname)" || {
-    log "No se pudo derivar hostname unico de Tailscale."
-    exit 1
-}
+for _ in $(seq 1 15); do
+    if ts_running_with_ipv4; then
+        log "Tailscale operativo."
+        exit 0
+    fi
+    sleep 2
+done
 
-set_static_hostname "$TAILSCALE_HOSTNAME"
+if ts_needs_login; then
+    if ! ts_authkey_available; then
+        log "Sin authkey disponible para recuperar la sesion."
+        exit 1
+    fi
 
-if tailscale_is_running && tailscale_has_ipv4; then
-    log "Tailscale operativo."
-    exit 0
-fi
+    TAILSCALE_HOSTNAME="$(ts_get_hostname)" || {
+        log "No se pudo derivar hostname unico de Tailscale."
+        exit 1
+    }
 
-if [ ! -s "$AUTHKEY_FILE" ]; then
-    log "Sin authkey disponible para recuperar la sesion."
-    exit 1
-fi
-
-AUTHKEY=$(tr -d '\r\n' < "$AUTHKEY_FILE")
-
-if tailscale up --authkey="$AUTHKEY" --hostname="$TAILSCALE_HOSTNAME" --accept-dns=false --advertise-tags=tag:safelock; then
-    for i in $(seq 1 15); do
-        if tailscale_is_running && tailscale_has_ipv4; then
+    ts_set_static_hostname "$TAILSCALE_HOSTNAME"
+    log "tailscaled requiere login; intentando recuperar la sesion."
+    if ts_run_up "$TAILSCALE_HOSTNAME" "$(ts_authkey)"; then
+        sleep 3
+        if ts_running_with_ipv4; then
             log "Sesion de Tailscale recuperada."
             exit 0
         fi
-        sleep 2
-    done
+    fi
+
+    log "No se pudo recuperar Tailscale."
+    exit 1
+fi
+
+if [ "$(ts_backend_state)" = "Starting" ]; then
+    log "tailscaled sigue calentando; se validara de nuevo en el siguiente ciclo."
+    exit 0
+fi
+
+log "tailscaled esta activo pero aun sin IP de Tailscale; se reinicia el daemon."
+systemctl restart tailscaled
+sleep 10
+
+for _ in $(seq 1 10); do
+    if ts_running_with_ipv4; then
+        log "Tailscale recuperado despues del reinicio del daemon."
+        exit 0
+    fi
+    sleep 2
+done
+
+if [ "$(ts_backend_state)" = "Starting" ]; then
+    log "tailscaled reiniciado y aun calentando; se validara de nuevo en el siguiente ciclo."
+    exit 0
 fi
 
 log "No se pudo recuperar Tailscale."
