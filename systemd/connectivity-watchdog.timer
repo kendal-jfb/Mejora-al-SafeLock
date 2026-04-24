@@ -2,8 +2,9 @@
 Description=Run SafeLock connectivity watchdog periodically
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
+OnBootSec=1min
+OnUnitActiveSec=1min
+RandomizedDelaySec=15s
 Persistent=true
 Unit=connectivity-watchdog.service
 

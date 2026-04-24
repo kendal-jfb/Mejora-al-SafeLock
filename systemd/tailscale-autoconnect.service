@@ -9,9 +9,9 @@ StartLimitIntervalSec=0
 Type=oneshot
 User=root
 ExecStart=/root/safeLock_SoC/scripts/tailscale-autoconnect.sh
-Restart=on-failure
-RestartSec=15
-TimeoutStartSec=180
+TimeoutStartSec=150
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
