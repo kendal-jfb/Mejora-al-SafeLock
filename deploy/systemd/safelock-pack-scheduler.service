@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock Pack Scheduler
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/safeLock_SoC/api
+ExecStart=/root/safeLock_SoC/api/venv/bin/python /root/safeLock_SoC/api/pack_scheduler.py
+

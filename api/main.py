@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -13,6 +15,15 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from pydantic import BaseModel
+
+from packs import (
+    get_pack_schedules_with_state,
+    get_pack_states,
+    load_full_config,
+    save_full_config,
+    save_schedule,
+    set_pack_enabled,
+)
 
 app = FastAPI(title="SafeLock API", version="1.2.0")
 
@@ -48,6 +59,13 @@ class UserConfig(BaseModel):
 class PackToggle(BaseModel):
     pack: str
     enabled: bool
+
+
+class PackSchedulePayload(BaseModel):
+    pack: str
+    start: Optional[str] = ""
+    end: Optional[str] = ""
+    enabled: bool = False
 
 # --- MAPEOS DE LOGS ---
 LOGTYPE_MAP = {
@@ -90,13 +108,7 @@ def get_my_ip_addr():
 
 def get_full_config():
     """Lee toda la configuración persistida"""
-    try:
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-    except:
-        return {}
-    return {}
+    return load_full_config()
 
 # --- MOTOR DE ENVÍO DE EMAIL ---
 # Cooldown de emails — máximo 1 por hora
@@ -148,12 +160,13 @@ def root():
 async def save_config(config: UserConfig, request: Request):
     """Guarda configuración y registra automáticamente la IP del admin"""
     try:
+        full_config = get_full_config()
         data = config.dict()
         # Registramos la IP desde donde se hace la petición como IP de confianza
         data["admin_ip"] = request.client.host
+        full_config.update(data)
 
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(data, f)
+        save_full_config(full_config)
         return {"status": "ok", "message": f"Configuración guardada. Admin IP: {data['admin_ip']}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -348,40 +361,30 @@ def get_pihole_stats():
 @app.get("/pihole/packs")
 def get_pihole_packs():
     try:
-        conn = sqlite3.connect(PIHOLE_GRAVITY_DB)
-        conn.row_factory = sqlite3.Row
-        curr = conn.cursor()
-        # Buscamos solo las reglas que inyectamos con la etiqueta [PACK_...]
-        rows = curr.execute("SELECT comment, enabled FROM domainlist WHERE comment LIKE '[PACK_%]'").fetchall()
-        conn.close()
-        
-        packs = {}
-        for row in rows:
-            # Limpiamos el nombre: de "[PACK_FAMILY]" pasa a ser "PACK_FAMILY"
-            pack_name = row["comment"].strip("[]")
-            packs[pack_name] = bool(row["enabled"])
-            
-        return packs
+        return get_pack_states()
     except Exception as e:
         return {"error": str(e)}
 
 @app.post("/pihole/packs/toggle")
 def toggle_pihole_pack(payload: PackToggle):
     try:
-        conn = sqlite3.connect(PIHOLE_GRAVITY_DB)
-        curr = conn.cursor()
-        
-        comment_tag = f"[{payload.pack}]"
-        new_status = 1 if payload.enabled else 0
-        
-        # Actualizamos el estado en la base de datos
-        curr.execute("UPDATE domainlist SET enabled = ? WHERE comment = ?", (new_status, comment_tag))
-        conn.commit()
-        conn.close()
-        
-        # Le decimos a Docker que recargue las listas de Pi-hole sin apagarlo
-        subprocess.run(["docker", "exec", "pihole", "pihole", "reloaddns"], capture_output=True)
-        
-        return {"success": True, "pack": payload.pack, "enabled": payload.enabled}
+        return set_pack_enabled(payload.pack, payload.enabled, source="manual")
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/pihole/packs/schedules")
+def get_pihole_pack_schedules():
+    try:
+        return get_pack_schedules_with_state()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/pihole/packs/schedules")
+def save_pihole_pack_schedule(payload: PackSchedulePayload):
+    try:
+        schedule = save_schedule(payload.pack, payload.start, payload.end, payload.enabled)
+        return {"success": True, "pack": payload.pack, "schedule": schedule}
     except Exception as e:
         return {"success": False, "error": str(e)}

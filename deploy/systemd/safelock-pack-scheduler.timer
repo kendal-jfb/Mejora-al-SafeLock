@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock Pack Scheduler Timer
+
+[Timer]
+OnBootSec=45sec
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

@@ -136,6 +136,91 @@ function ToggleSwitch({ checked, onChange, loading }) {
   );
 }
 
+function TimeSelect({ label, value, onChange, disabled }) {
+  const [hour = "", minute = ""] = (value || "").split(":");
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const minutes = ["00", "15", "30", "45"];
+
+  const updatePart = (nextHour, nextMinute) => {
+    if (!nextHour && !nextMinute) {
+      onChange("");
+      return;
+    }
+    if (!nextHour || !nextMinute) {
+      onChange("");
+      return;
+    }
+    onChange(`${nextHour}:${nextMinute}`);
+  };
+
+  return (
+    <div style={{ padding: 10, borderRadius: 8, background: "var(--bg3)", border: "1px solid var(--border)" }}>
+      <label style={{ display: "block", fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase", marginBottom: 8 }}>
+        {label}
+      </label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 8, alignItems: "center" }}>
+        <select
+          value={hour}
+          disabled={disabled}
+          onChange={(e) => updatePart(e.target.value, minute)}
+          style={{
+            width: "100%",
+            appearance: "none",
+            WebkitAppearance: "none",
+            MozAppearance: "none",
+            background: "var(--bg1)",
+            border: "1px solid rgba(13,148,136,.18)",
+            borderRadius: 6,
+            padding: "10px 12px",
+            color: "var(--title)",
+            fontFamily: "'IBM Plex Sans', sans-serif",
+            fontSize: 14,
+            fontWeight: 600,
+            fontVariantNumeric: "tabular-nums",
+            outline: "none",
+            cursor: disabled ? "not-allowed" : "pointer",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.02)"
+          }}
+        >
+          <option value="">Hora</option>
+          {hours.map((item) => (
+            <option key={item} value={item}>{item}</option>
+          ))}
+        </select>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 16, color: "var(--text3)", fontWeight: 700 }}>:</span>
+        <select
+          value={minute}
+          disabled={disabled}
+          onChange={(e) => updatePart(hour, e.target.value)}
+          style={{
+            width: "100%",
+            appearance: "none",
+            WebkitAppearance: "none",
+            MozAppearance: "none",
+            background: "var(--bg1)",
+            border: "1px solid rgba(13,148,136,.18)",
+            borderRadius: 6,
+            padding: "10px 12px",
+            color: "var(--title)",
+            fontFamily: "'IBM Plex Sans', sans-serif",
+            fontSize: 14,
+            fontWeight: 600,
+            fontVariantNumeric: "tabular-nums",
+            outline: "none",
+            cursor: disabled ? "not-allowed" : "pointer",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.02)"
+          }}
+        >
+          <option value="">Min</option>
+          {minutes.map((item) => (
+            <option key={item} value={item}>{item}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 // ── Modales ────────────────────────────────────────────────────────────────────
 function PremiumModal({ isOpen, onClose }) {
   const [step, setStep] = useState(0);
@@ -571,11 +656,44 @@ function PremiumView() {
   // ── ESTADOS PARA LOS PACKS DE BLOQUEO ──
   const [packs, setPacks] = useState({});
   const [toggling, setToggling] = useState(null);
+  const [schedules, setSchedules] = useState({});
+  const [scheduleDrafts, setScheduleDrafts] = useState({});
+  const [scheduleSaving, setScheduleSaving] = useState({});
+  const [scheduleStatus, setScheduleStatus] = useState({});
+  const [scheduleOpen, setScheduleOpen] = useState({});
+
+  const packDetails = [
+    { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
+    { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
+    { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" },
+    { id: "PACK_PRIVACY", name: "Ultra Privacidad", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" }
+  ];
+
+  const normalizeSchedules = (data = {}) =>
+    Object.fromEntries(
+      packDetails.map((pack) => {
+        const schedule = data?.[pack.id] || {};
+        return [pack.id, {
+          start: schedule.start || "",
+          end: schedule.end || "",
+          enabled: Boolean(schedule.enabled),
+          active_now: Boolean(schedule.active_now),
+        }];
+      })
+    );
 
   useEffect(() => {
     fetch(`${API}/pihole/packs`)
       .then(res => res.json())
       .then(data => setPacks(data))
+      .catch(console.error);
+    fetch(`${API}/pihole/packs/schedules`)
+      .then(res => res.json())
+      .then(data => {
+        const normalized = normalizeSchedules(data);
+        setSchedules(normalized);
+        setScheduleDrafts(normalized);
+      })
       .catch(console.error);
   }, []);
 
@@ -593,6 +711,14 @@ function PremiumView() {
       const result = await res.json();
       if (result.success) {
         setPacks(prev => ({ ...prev, [packId]: !currentStatus }));
+        setSchedules(prev => ({
+          ...prev,
+          [packId]: { ...(prev[packId] || {}), active_now: !currentStatus }
+        }));
+        setScheduleDrafts(prev => ({
+          ...prev,
+          [packId]: { ...(prev[packId] || {}), active_now: !currentStatus }
+        }));
       }
     } catch (err) {
       console.error("Error cambiando el pack", err);
@@ -600,12 +726,104 @@ function PremiumView() {
     setToggling(null);
   };
 
-  const packDetails = [
-    { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
-    { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
-    { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" },
-    { id: "PACK_PRIVACY", name: "Ultra Privacidad", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" }
-  ];
+  const handleScheduleChange = (packId, field, value) => {
+    setScheduleDrafts(prev => ({
+      ...prev,
+      [packId]: {
+        ...(prev[packId] || { start: "", end: "", enabled: false, active_now: false }),
+        [field]: value,
+        enabled: Boolean(
+          (field === "start" ? value : prev[packId]?.start) &&
+          (field === "end" ? value : prev[packId]?.end)
+        ),
+      }
+    }));
+    setScheduleStatus(prev => ({ ...prev, [packId]: null }));
+  };
+
+  const toggleScheduleOpen = (packId) => {
+    setScheduleOpen(prev => ({ ...prev, [packId]: !prev[packId] }));
+  };
+
+  const handleClearSchedule = (packId) => {
+    const cleared = { start: "", end: "", enabled: false, active_now: schedules[packId]?.active_now || false };
+    setScheduleDrafts(prev => ({ ...prev, [packId]: cleared }));
+    setScheduleStatus(prev => ({ ...prev, [packId]: null }));
+  };
+
+  const handleSaveSchedule = async (packId) => {
+    const draft = scheduleDrafts[packId] || { start: "", end: "", enabled: false };
+
+    if ((draft.start && !draft.end) || (!draft.start && draft.end)) {
+      setScheduleStatus(prev => ({ ...prev, [packId]: { type: "error", text: "Complete ambas horas o limpie el horario." } }));
+      return;
+    }
+
+    setScheduleSaving(prev => ({ ...prev, [packId]: true }));
+    setScheduleStatus(prev => ({ ...prev, [packId]: null }));
+
+    try {
+      const res = await fetch(`${API}/pihole/packs/schedules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pack: packId,
+          start: draft.start || "",
+          end: draft.end || "",
+          enabled: Boolean(draft.start && draft.end),
+        }),
+      });
+      const result = await res.json();
+      if (!result.success) {
+        throw new Error(result.error || "No se pudo guardar el horario");
+      }
+
+      const nextSchedule = {
+        ...(result.schedule || { start: "", end: "", enabled: false }),
+        active_now: packs[packId] || false,
+      };
+      setSchedules(prev => ({ ...prev, [packId]: nextSchedule }));
+      setScheduleDrafts(prev => ({ ...prev, [packId]: nextSchedule }));
+      setScheduleStatus(prev => ({ ...prev, [packId]: { type: "ok", text: "Guardado" } }));
+    } catch (err) {
+      setScheduleStatus(prev => ({ ...prev, [packId]: { type: "error", text: err.message || "Error al guardar" } }));
+    }
+
+    setScheduleSaving(prev => ({ ...prev, [packId]: false }));
+  };
+
+  const getScheduleLabel = (packId) => {
+    const schedule = schedules[packId];
+    if (schedule?.enabled && schedule.start && schedule.end) {
+      return `Activo de ${schedule.start} a ${schedule.end}`;
+    }
+    return "Sin horario configurado";
+  };
+
+  const getScheduleAccent = (packId) => {
+    const draft = scheduleDrafts[packId] || {};
+    const hasWindow = Boolean(draft.start && draft.end);
+    const status = scheduleStatus[packId];
+
+    if (status?.type === "error") {
+      return { color: "var(--red)", bg: "var(--red-dim)", border: "rgba(220,38,38,.24)" };
+    }
+    if (hasWindow) {
+      return { color: "var(--teal-brt)", bg: "var(--teal-dim)", border: "rgba(13,148,136,.22)" };
+    }
+    return { color: "var(--text3)", bg: "var(--bg1)", border: "var(--border)" };
+  };
+
+  const getDraftScheduleLabel = (packId) => {
+    const draft = scheduleDrafts[packId] || {};
+    if (draft.start && draft.end) {
+      return `${draft.start} - ${draft.end}`;
+    }
+    if (draft.start || draft.end) {
+      return "Horario incompleto";
+    }
+    return "Sin horario";
+  };
 
   const modules = [
     { name: "Filtro AdBlock", desc: "Bloqueo de publicidad invasiva", icon: <Icon.Slash s={20}/>, color: "var(--teal-brt)" },
@@ -667,17 +885,233 @@ function PremiumView() {
             <PHead title="Control de Red Avanzado" titleColor="var(--amber)" icon={<Icon.Settings s={14} c="var(--amber)"/>} />
             <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               {packDetails.map((pack) => (
-                <div key={pack.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
-                  <div style={{ padding: 8, background: "var(--bg1)", borderRadius: 6, color: pack.color, display: "flex" }}>{pack.icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--title)" }}>{pack.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{pack.desc}</div>
+                <div key={pack.id} style={{ display: "flex", flexDirection: "column", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ padding: 8, background: "var(--bg1)", borderRadius: 6, color: pack.color, display: "flex" }}>{pack.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--title)" }}>{pack.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{pack.desc}</div>
+                    </div>
+                    <ToggleSwitch 
+                      checked={packs[pack.id]} 
+                      loading={toggling === pack.id} 
+                      onChange={() => handleTogglePack(pack.id)} 
+                    />
                   </div>
-                  <ToggleSwitch 
-                    checked={packs[pack.id]} 
-                    loading={toggling === pack.id} 
-                    onChange={() => handleTogglePack(pack.id)} 
-                  />
+
+                  <div style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                    padding: 14,
+                    borderRadius: 8,
+                    background: `linear-gradient(180deg, ${getScheduleAccent(pack.id).bg}, var(--bg2))`,
+                    border: `1px solid ${getScheduleAccent(pack.id).border}`,
+                    boxShadow: scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end ? "inset 0 1px 0 rgba(255,255,255,.03)" : "none"
+                  }}>
+                    <button
+                      onClick={() => toggleScheduleOpen(pack.id)}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        padding: 0,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <Dot color={getScheduleAccent(pack.id).color} pulse={Boolean(scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end)} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".12em", textTransform: "uppercase", color: getScheduleAccent(pack.id).color }}>
+                            Ventana Horaria
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {getScheduleLabel(pack.id)}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        <div style={{
+                          fontFamily: "var(--mono)",
+                          fontSize: 11,
+                          color: scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end ? "var(--teal-brt)" : "var(--text3)",
+                          background: scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end ? "rgba(13,148,136,.12)" : "var(--bg3)",
+                          border: `1px solid ${scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end ? "rgba(13,148,136,.24)" : "var(--border)"}`,
+                          borderRadius: 999,
+                          padding: "5px 10px",
+                          letterSpacing: ".06em"
+                        }}>
+                          {getDraftScheduleLabel(pack.id)}
+                        </div>
+                        <span style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 28,
+                          height: 28,
+                          borderRadius: "50%",
+                          background: "var(--bg3)",
+                          border: "1px solid var(--border)",
+                          color: scheduleOpen[pack.id] ? "var(--teal-brt)" : "var(--text3)",
+                          transform: scheduleOpen[pack.id] ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "transform .2s ease, color .2s ease"
+                        }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </span>
+                      </div>
+                    </button>
+
+                    {scheduleStatus[pack.id] && (
+                      <div>
+                        <span style={{
+                          display: "inline-flex",
+                          fontFamily: "var(--mono)",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: scheduleStatus[pack.id].type === "ok" ? "var(--ok)" : "var(--red)",
+                          border: `1px solid ${scheduleStatus[pack.id].type === "ok" ? "rgba(5,150,105,.25)" : "rgba(220,38,38,.25)"}`,
+                          background: scheduleStatus[pack.id].type === "ok" ? "rgba(5,150,105,.10)" : "rgba(220,38,38,.10)",
+                          borderRadius: 999,
+                          padding: "4px 9px",
+                          textTransform: "uppercase",
+                          letterSpacing: ".08em"
+                        }}>
+                          {scheduleStatus[pack.id].text}
+                        </span>
+                      </div>
+                    )}
+
+                    {scheduleOpen[pack.id] && (
+                      <>
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: 8
+                        }}>
+                          <div style={{
+                            padding: "10px 12px",
+                            borderRadius: 8,
+                            background: "var(--bg3)",
+                            border: "1px solid var(--border)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8
+                          }}>
+                            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em" }}>
+                              Desde
+                            </span>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--title)", fontVariantNumeric: "tabular-nums" }}>
+                              {scheduleDrafts[pack.id]?.start || "--:--"}
+                            </span>
+                          </div>
+                          <div style={{
+                            padding: "10px 12px",
+                            borderRadius: 8,
+                            background: "var(--bg3)",
+                            border: "1px solid var(--border)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 8
+                          }}>
+                            <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".1em" }}>
+                              Hasta
+                            </span>
+                            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--title)", fontVariantNumeric: "tabular-nums" }}>
+                              {scheduleDrafts[pack.id]?.end || "--:--"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={{
+                          position: "relative",
+                          height: 10,
+                          borderRadius: 999,
+                          background: "var(--bg3)",
+                          border: "1px solid var(--border)",
+                          overflow: "hidden"
+                        }}>
+                          <div style={{
+                            position: "absolute",
+                            inset: 1,
+                            borderRadius: 999,
+                            background: scheduleDrafts[pack.id]?.start && scheduleDrafts[pack.id]?.end
+                              ? "linear-gradient(90deg, rgba(13,148,136,.18), rgba(13,148,136,.45), rgba(13,148,136,.18))"
+                              : "transparent"
+                          }} />
+                        </div>
+
+                        <div className="schedule-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+                          <TimeSelect
+                            label="Desde"
+                            value={scheduleDrafts[pack.id]?.start || ""}
+                            onChange={(value) => handleScheduleChange(pack.id, "start", value)}
+                            disabled={Boolean(scheduleSaving[pack.id])}
+                          />
+                          <TimeSelect
+                            label="Hasta"
+                            value={scheduleDrafts[pack.id]?.end || ""}
+                            onChange={(value) => handleScheduleChange(pack.id, "end", value)}
+                            disabled={Boolean(scheduleSaving[pack.id])}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          <button
+                            onClick={() => handleSaveSchedule(pack.id)}
+                            disabled={Boolean(scheduleSaving[pack.id])}
+                            style={{
+                              minWidth: 120,
+                              height: 38,
+                              padding: "0 14px",
+                              background: "linear-gradient(135deg, var(--teal), var(--teal-brt))",
+                              color: "#031311",
+                              border: "none",
+                              borderRadius: 999,
+                              cursor: scheduleSaving[pack.id] ? "wait" : "pointer",
+                              fontFamily: "var(--mono)",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: ".08em",
+                              boxShadow: "0 8px 18px rgba(13,148,136,.18)"
+                            }}
+                          >
+                            {scheduleSaving[pack.id] ? "Guardando" : "Guardar Horario"}
+                          </button>
+                          <button
+                            onClick={() => handleClearSchedule(pack.id)}
+                            disabled={Boolean(scheduleSaving[pack.id])}
+                            style={{
+                              height: 38,
+                              padding: "0 14px",
+                              background: "var(--bg3)",
+                              color: "var(--text2)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 999,
+                              cursor: scheduleSaving[pack.id] ? "wait" : "pointer",
+                              fontFamily: "var(--mono)",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: ".08em"
+                            }}
+                          >
+                            Limpiar
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
