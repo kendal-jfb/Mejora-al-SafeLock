@@ -40,3 +40,4 @@ pihole/etc-pihole/dhcp.leases
 *.img.gz
 api/last_report.json
 pihole/etc-pihole/versions
+.update-backup/

@@ -786,7 +786,7 @@ function PremiumView() {
   };
 
   const toggleScheduleOpen = (packId) => {
-    setScheduleOpen(prev => ({ ...prev, [packId]: !prev[packId] }));
+    setScheduleOpen(prev => ({ [packId]: !prev[packId] }));
   };
 
   const handleClearSchedule = (packId) => {

@@ -6,26 +6,54 @@ export GIT_TERMINAL_PROMPT=0
 LOG="/var/log/safelock-update.log"
 DIR="/root/safeLock_SoC"
 DATE=$(date '+%Y-%m-%d %H:%M:%S')
+BACKUP_ROOT="/var/lib/safelock/update-backups"
 
 cd "$DIR"
 
 PREV=$(git rev-parse HEAD)
 mkdir -p /var/lib/safelock
 echo "$PREV" > /var/lib/safelock/previous_commit
+mkdir -p "$BACKUP_ROOT"
 
 git fetch origin master >> "$LOG" 2>&1
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/master)
 
+backup_conflicting_untracked() {
+    local backup_dir="$BACKUP_ROOT/$(date '+%Y%m%d-%H%M%S')"
+    local moved=0
+
+    mkdir -p "$backup_dir"
+
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        if [ -e "$path" ] && git ls-files --others --exclude-standard --error-unmatch "$path" >/dev/null 2>&1; then
+            mkdir -p "$backup_dir/$(dirname "$path")"
+            mv "$path" "$backup_dir/$path"
+            echo "[$DATE] Untracked conflict movido a backup: $path" >> "$LOG"
+            moved=1
+        fi
+    done < <(git ls-tree -r --name-only origin/master)
+
+    if [ "$moved" -eq 1 ]; then
+        echo "[$DATE] Backup untracked creado en $backup_dir" >> "$LOG"
+    else
+        rmdir "$backup_dir" 2>/dev/null || true
+    fi
+}
+
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo "[$DATE] Sin cambios en repo, pero aplicando configuracion..." >> "$LOG"
 else
     echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
+    backup_conflicting_untracked
     git reset --hard origin/master >> "$LOG" 2>&1
 fi
 
 cp -f "$DIR"/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
 cp -f "$DIR"/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
+cp -f "$DIR"/deploy/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
+cp -f "$DIR"/deploy/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
 
 systemctl daemon-reload >> "$LOG" 2>&1
 
@@ -38,6 +66,7 @@ for svc in \
   safelock-network.service \
   safelock-pihole-setup.service \
   tailscale-autoconnect.service \
+  safelock-pack-scheduler.timer \
   connectivity-watchdog.timer \
   safelock-network.timer \
   safelock-update.timer \
@@ -61,6 +90,11 @@ fi
 if [ -f "/etc/systemd/system/safelock-network.timer" ]; then
     systemctl restart safelock-network.timer >> "$LOG" 2>&1 || true
     echo "[$DATE] safelock-network.timer reiniciado" >> "$LOG"
+fi
+
+if [ -f "/etc/systemd/system/safelock-pack-scheduler.timer" ]; then
+    systemctl restart safelock-pack-scheduler.timer >> "$LOG" 2>&1 || true
+    echo "[$DATE] safelock-pack-scheduler.timer reiniciado" >> "$LOG"
 fi
 
 echo "[$DATE] systemd actualizado" >> "$LOG"
