@@ -13,6 +13,7 @@ rm -f /etc/safelock-id
 rm -f /etc/safelock-ip-lock
 rm -f /etc/safelock-factory.done
 rm -f /etc/safelock-postfactory.done
+rm -f /root/safeLock_SoC/api/config.json
 
 echo "[3/10] Limpiando estado de Tailscale..."
 rm -rf /var/lib/tailscale/*

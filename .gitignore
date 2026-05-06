@@ -6,9 +6,10 @@
 # Logs
 *.log
 
-# Credenciales
+# Configuracion local del dispositivo
 config.json
 /api/config.json
+/api/config.local.json
 
 # Node modules
 node_modules/

@@ -229,6 +229,27 @@ function TimeSelect({ label, value, onChange, disabled }) {
   );
 }
 
+function normalizePackSchedules(packDetails, data = {}) {
+  return Object.fromEntries(
+    packDetails.map((pack) => {
+      const schedule = data?.[pack.id] || {};
+      return [pack.id, {
+        start: schedule.start || "",
+        end: schedule.end || "",
+        enabled: Boolean(schedule.enabled),
+        active_now: Boolean(schedule.active_now),
+      }];
+    })
+  );
+}
+
+const PACK_DETAILS = [
+  { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
+  { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
+  { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" },
+  { id: "PACK_PRIVACY", name: "Ultra Privacidad", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" }
+];
+
 // ── Modales ────────────────────────────────────────────────────────────────────
 function PremiumModal({ isOpen, onClose }) {
   const [step, setStep] = useState(0);
@@ -576,31 +597,81 @@ function DevicesView() {
 
 function SettingsView() {
   const { data: systemInfo } = useAPI("/system-info", 60000);
-  const [email, setEmail] = useState(() => localStorage.getItem("report_email") || "");
-  const [freq, setFreq] = useState(() => localStorage.getItem("report_freq") || "semanal");
+  const [email, setEmail] = useState("");
+  const [freq, setFreq] = useState("semanal");
+  const [configLoading, setConfigLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadConfig = async () => {
+      setConfigLoading(true);
+      setError("");
+
+      try {
+        const response = await fetch(`${API}/config`);
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload?.detail || "No se pudo cargar la configuración.");
+        }
+
+        if (!cancelled) {
+          setEmail(payload?.email || "");
+          setFreq(payload?.frequency || "semanal");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "No se pudo cargar la configuración del dispositivo.");
+        }
+      } finally {
+        if (!cancelled) {
+          setConfigLoading(false);
+        }
+      }
+    };
+
+    loadConfig();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSave = async () => {
-    localStorage.setItem("report_email", email);
-    localStorage.setItem("report_freq", freq);
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    setSaved(false);
 
     try {
       const response = await fetch(`${API}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email,
+          email,
           frequency: freq,
-          alerts_enabled: true
-        })
+          alerts_enabled: true,
+        }),
       });
-      if (response.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2500);
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || "No se pudo guardar la configuración.");
       }
+
+      setEmail(payload?.email || email.trim());
+      setFreq(payload?.frequency || freq);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } catch (err) {
       console.error("Error sincronizando con la placa:", err);
-      alert("Error de conexión con la placa");
+      setError(err.message || "Error de conexión con la placa.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -618,25 +689,35 @@ function SettingsView() {
           <Panel>
             <PHead title="Reportes por Email" titleColor="var(--teal-brt)" icon={<Icon.Mail s={14} c="var(--teal-brt)"/>}/>
             <div style={{ padding: 20 }}>
+              {configLoading && (
+                <div style={{ marginBottom: 16, fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase" }}>
+                  Cargando configuración del dispositivo...
+                </div>
+              )}
+              {error && (
+                <div style={{ marginBottom: 16, padding: "10px 12px", borderRadius: 6, border: "1px solid rgba(220,38,38,.28)", background: "rgba(220,38,38,.12)", color: "var(--red)", fontSize: 12 }}>
+                  {error}
+                </div>
+              )}
               <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase", display: "block", marginBottom: 8 }}>Correo electrónico</label>
               <div style={{ position: "relative", marginBottom: 20 }}>
                 <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text3)", display: "flex" }}><Icon.Mail s={16}/></span>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@empresa.com"
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@empresa.com" disabled={configLoading || saving}
                   style={{ width: "100%", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 6, padding: "11px 14px 11px 40px", color: "var(--text)", fontSize: 13, outline: "none" }} />
               </div>
 
               <label style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text3)", textTransform: "uppercase", display: "block", marginBottom: 10 }}>Frecuencia</label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
                 {freqOptions.map(opt => (
-                  <button key={opt.value} onClick={() => setFreq(opt.value)} style={{ padding: "12px", borderRadius: 6, border: `1px solid ${freq === opt.value ? "var(--teal-brt)" : "var(--border)"}`, background: freq === opt.value ? "var(--teal-dim)" : "var(--bg3)", cursor: "pointer", textAlign: "left" }}>
+                  <button key={opt.value} onClick={() => setFreq(opt.value)} disabled={configLoading || saving} style={{ padding: "12px", borderRadius: 6, border: `1px solid ${freq === opt.value ? "var(--teal-brt)" : "var(--border)"}`, background: freq === opt.value ? "var(--teal-dim)" : "var(--bg3)", cursor: configLoading || saving ? "not-allowed" : "pointer", textAlign: "left", opacity: configLoading || saving ? 0.7 : 1 }}>
                     <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600, color: freq === opt.value ? "var(--teal-brt)" : "var(--title)" }}>{opt.label}</div>
                     <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text3)" }}>{opt.desc}</div>
                   </button>
                 ))}
               </div>
 
-              <button onClick={handleSave} style={{ width: "100%", padding: 13, background: saved ? "var(--ok)" : "var(--teal-brt)", color: "#000", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                {saved ? <><Icon.Check s={16} c="#000"/> Guardado</> : <><Icon.Mail s={16} c="#000"/> Guardar configuración</>}
+              <button onClick={handleSave} disabled={configLoading || saving} style={{ width: "100%", padding: 13, background: saved ? "var(--ok)" : "var(--teal-brt)", color: "#000", border: "none", borderRadius: 6, cursor: configLoading || saving ? "not-allowed" : "pointer", fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: configLoading || saving ? 0.7 : 1 }}>
+                {saved ? <><Icon.Check s={16} c="#000"/> Guardado</> : <><Icon.Mail s={16} c="#000"/> {saving ? "Guardando..." : "Guardar configuración"}</>}
               </button>
             </div>
           </Panel>
@@ -706,26 +787,6 @@ function PremiumView() {
   const [scheduleStatus, setScheduleStatus] = useState({});
   const [scheduleOpen, setScheduleOpen] = useState({});
 
-  const packDetails = [
-    { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
-    { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
-    { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" },
-    { id: "PACK_PRIVACY", name: "Ultra Privacidad", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" }
-  ];
-
-  const normalizeSchedules = (data = {}) =>
-    Object.fromEntries(
-      packDetails.map((pack) => {
-        const schedule = data?.[pack.id] || {};
-        return [pack.id, {
-          start: schedule.start || "",
-          end: schedule.end || "",
-          enabled: Boolean(schedule.enabled),
-          active_now: Boolean(schedule.active_now),
-        }];
-      })
-    );
-
   useEffect(() => {
     fetch(`${API}/pihole/packs`)
       .then(res => res.json())
@@ -734,7 +795,7 @@ function PremiumView() {
     fetch(`${API}/pihole/packs/schedules`)
       .then(res => res.json())
       .then(data => {
-        const normalized = normalizeSchedules(data);
+        const normalized = normalizePackSchedules(PACK_DETAILS, data);
         setSchedules(normalized);
         setScheduleDrafts(normalized);
       })
@@ -928,7 +989,7 @@ function PremiumView() {
           <Panel>
             <PHead title="Control de Red Avanzado" titleColor="var(--amber)" icon={<Icon.Settings s={14} c="var(--amber)"/>} />
             <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-              {packDetails.map((pack) => (
+              {PACK_DETAILS.map((pack) => (
                 <div key={pack.id} style={{ display: "flex", flexDirection: "column", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ padding: 8, background: "var(--bg1)", borderRadius: 6, color: pack.color, display: "flex" }}>{pack.icon}</div>

@@ -8,6 +8,13 @@ from datetime import datetime
 
 CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
 PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ALLOWED_FREQUENCIES = {"diario", "semanal", "quincenal", "mensual"}
+DEFAULT_USER_CONFIG = {
+    "email": "",
+    "frequency": "semanal",
+    "alerts_enabled": True,
+}
 
 PACK_IDS = (
     "PACK_FAMILY",
@@ -29,6 +36,20 @@ def load_full_config():
     except Exception:
         return {}
     return {}
+
+
+def get_public_config():
+    full_config = load_full_config()
+    config = DEFAULT_USER_CONFIG.copy()
+
+    email = str(full_config.get("email", "") or "").strip()
+    frequency = str(full_config.get("frequency", DEFAULT_USER_CONFIG["frequency"]) or "").strip().lower()
+    alerts_enabled = full_config.get("alerts_enabled", DEFAULT_USER_CONFIG["alerts_enabled"])
+
+    config["email"] = email if EMAIL_RE.match(email) else ""
+    config["frequency"] = frequency if frequency in ALLOWED_FREQUENCIES else DEFAULT_USER_CONFIG["frequency"]
+    config["alerts_enabled"] = bool(alerts_enabled)
+    return config
 
 
 def save_full_config(data):

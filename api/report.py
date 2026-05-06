@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from packs import DEFAULT_USER_CONFIG, load_full_config
+
 # ── Configuración ──────────────────────────────────────────────────────────────
 SMTP_SERVER  = "bh8912.banahosting.com"
 SMTP_PORT    = 465
@@ -26,11 +28,14 @@ LAST_REPORT_FILE = "/root/safeLock_SoC/api/last_report.json"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def get_config():
+    config = DEFAULT_USER_CONFIG.copy()
     try:
-        with open(CONFIG_FILE) as f:
-            return json.load(f)
-    except:
-        return {}
+        stored = load_full_config()
+        if isinstance(stored, dict):
+            config.update(stored)
+    except Exception:
+        pass
+    return config
 
 def pihole_active():
     try:

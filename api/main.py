@@ -1,4 +1,5 @@
 from typing import Optional
+import re
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,8 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from packs import (
+    ALLOWED_FREQUENCIES,
+    get_public_config,
     get_pack_schedules_with_state,
     get_pack_states,
     load_full_config,
@@ -42,6 +45,7 @@ PASSIVEDNS_LOG = "/var/log/passivedns.log"
 CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
 PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
 PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # --- CONFIGURACIÓN SMTP ---
 SMTP_SERVER  = "bh8912.banahosting.com"
@@ -184,6 +188,31 @@ def get_full_config():
     """Lee toda la configuración persistida"""
     return load_full_config()
 
+
+def normalize_email(value):
+    return str(value or "").strip().lower()
+
+
+def validate_user_config(config: UserConfig):
+    email = normalize_email(config.email)
+    if not email:
+        raise HTTPException(status_code=400, detail="El correo es obligatorio.")
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="El correo no tiene un formato válido.")
+
+    frequency = str(config.frequency or "").strip().lower()
+    if frequency not in ALLOWED_FREQUENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Frecuencia inválida. Opciones: {', '.join(sorted(ALLOWED_FREQUENCIES))}.",
+        )
+
+    return {
+        "email": email,
+        "frequency": frequency,
+        "alerts_enabled": bool(config.alerts_enabled),
+    }
+
 # --- MOTOR DE ENVÍO DE EMAIL ---
 # Cooldown de emails — máximo 1 por hora
 _last_email_sent = None
@@ -229,18 +258,30 @@ def send_email_alert(subject, recipient, ip, port, service):
 def root():
     return {"status": "SafeLock API operativa", "version": "1.2.0"}
 
+
+@app.get("/config")
+def read_config():
+    return get_public_config()
+
+
 @app.post("/config")
 async def save_config(config: UserConfig, request: Request):
     """Guarda configuración y registra automáticamente la IP del admin"""
     try:
         full_config = get_full_config()
-        data = config.dict()
+        data = validate_user_config(config)
         # Registramos la IP desde donde se hace la petición como IP de confianza
-        data["admin_ip"] = request.client.host
+        data["admin_ip"] = request.client.host if request.client else ""
         full_config.update(data)
 
         save_full_config(full_config)
-        return {"status": "ok", "message": f"Configuración guardada. Admin IP: {data['admin_ip']}"}
+        return {
+            "status": "ok",
+            "message": f"Configuración guardada. Admin IP: {data['admin_ip']}",
+            **get_public_config(),
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
