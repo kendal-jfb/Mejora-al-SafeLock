@@ -246,8 +246,8 @@ function normalizePackSchedules(packDetails, data = {}) {
 const PACK_DETAILS = [
   { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
   { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
-  { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" },
-  { id: "PACK_PRIVACY", name: "Ultra Privacidad", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" }
+  { id: "PACK_PRIVACY", name: "Modo UltraConcentración", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" },
+  { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" }
 ];
 
 // ── Modales ────────────────────────────────────────────────────────────────────
@@ -966,29 +966,44 @@ function PremiumView() {
         </Panel>
       </div>
 
-      <div className="main-grid">
-        <Panel>
-          <PHead title="Actividad de Bloqueo Real" icon={<Icon.Activity s={14}/>} />
-          <div style={{ height: 250, padding: "20px 20px 0 0" }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={piData?.graph || []}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                <XAxis dataKey="time" stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} />
-                <YAxis stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} domain={[0, 'auto']} tickCount={5} />
-                <RTooltip content={<CustomTooltip/>} cursor={{fill: "var(--bg3)"}} />
-                <Bar dataKey="peticiones" name="Peticiones" fill="var(--teal-dim)" radius={[2,2,0,0]} />
-                <Bar dataKey="bloqueado" name="Bloqueadas" fill="var(--red)" radius={[2,2,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          
-          {/* NUEVA TARJETA: Módulos de Control */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="premium-top-grid">
           <Panel>
-            <PHead title="Control de Red Avanzado" titleColor="var(--amber)" icon={<Icon.Settings s={14} c="var(--amber)"/>} />
+            <PHead title="Actividad de Bloqueo Real" icon={<Icon.Activity s={14}/>} />
+            <div style={{ height: 180, padding: "14px 16px 8px 0" }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={piData?.graph || []}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                  <XAxis dataKey="time" stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} />
+                  <YAxis stroke="var(--text4)" tick={{fontSize: 10, fontFamily: "var(--mono)"}} axisLine={false} tickLine={false} domain={[0, 'auto']} tickCount={5} />
+                  <RTooltip content={<CustomTooltip/>} cursor={{fill: "var(--bg3)"}} />
+                  <Bar dataKey="peticiones" name="Peticiones" fill="var(--teal-dim)" radius={[2,2,0,0]} />
+                  <Bar dataKey="bloqueado" name="Bloqueadas" fill="var(--red)" radius={[2,2,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Panel>
+
+          <Panel>
+            <PHead title="Estado de Motores Base" icon={<Icon.Cpu s={14}/>} />
             <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {modules.map((m, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
+                  <div style={{ padding: 8, background: "var(--bg1)", borderRadius: 6, color: m.color, display: "flex" }}>{m.icon}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--title)" }}>{m.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{m.desc}</div>
+                  </div>
+                  <Dot color="var(--ok)" pulse />
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </div>
+
+        <Panel>
+            <PHead title="Control de Red Avanzado" titleColor="var(--amber)" icon={<Icon.Settings s={14} c="var(--amber)"/>} />
+            <div className="premium-control-grid" style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
               {PACK_DETAILS.map((pack) => (
                 <div key={pack.id} style={{ display: "flex", flexDirection: "column", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1221,24 +1236,6 @@ function PremiumView() {
               ))}
             </div>
           </Panel>
-
-          <Panel>
-            <PHead title="Estado de Motores Base" icon={<Icon.Cpu s={14}/>} />
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-              {modules.map((m, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: 8 }}>
-                  <div style={{ padding: 8, background: "var(--bg1)", borderRadius: 6, color: m.color, display: "flex" }}>{m.icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--title)" }}>{m.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{m.desc}</div>
-                  </div>
-                  <Dot color="var(--ok)" pulse />
-                </div>
-              ))}
-            </div>
-          </Panel>
-
-        </div>
       </div>
     </div>
   );
@@ -1289,6 +1286,7 @@ export default function App() {
         .scroll-area{flex:1;overflow-y:auto;padding:24px;background:var(--bg)}
         .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
         .main-grid{display:grid;grid-template-columns:1fr 310px;gap:16px;margin-top:16px}
+        .premium-top-grid{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px}
         .responsive-grid{display:grid;grid-template-columns:1fr 1fr}
         .panel{transition:border-color .2s}
         .clickable-panel{cursor:pointer;transition:transform .2s,border-color .2s,box-shadow .2s !important}
@@ -1310,6 +1308,8 @@ export default function App() {
         @media(max-width:900px){
           .stats-grid{grid-template-columns:1fr}
           .main-grid{grid-template-columns:1fr}
+          .premium-top-grid{grid-template-columns:1fr}
+          .premium-control-grid{grid-template-columns:1fr !important}
           .responsive-grid{grid-template-columns:1fr !important}
           .table-header{display:none !important}
           .table-row{grid-template-columns:30px 1fr !important}
