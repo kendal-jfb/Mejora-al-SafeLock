@@ -46,6 +46,7 @@ CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
 PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
 PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+INTERNAL_STATUS_TOKEN = os.getenv("SAFELOCK_INTERNAL_TOKEN", "")
 
 # --- CONFIGURACIÓN SMTP ---
 SMTP_SERVER  = "bh8912.banahosting.com"
@@ -416,31 +417,123 @@ def get_qr():
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
 
-@app.get("/status")
-def get_status():
-    def pihole_active():
-        try:
-            # Busca cualquier contenedor activo que tenga "pihole" en el nombre o imagen
-            result = subprocess.run(
-                "docker ps | grep pihole",
-                shell=True, capture_output=True, text=True
-            )
-            return "pihole" in result.stdout.lower()
-        except:
-            return False
+def container_running(name):
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.stdout.strip().lower() == "true"
+    except:
+        return False
 
+
+def service_active(name):
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.stdout.strip() == "active"
+    except:
+        return False
+
+
+def build_internal_status():
     services = {
-        "netalertx": os.path.exists(NETALERTX_DB),
-        "opencanary": os.path.exists(OPENCANARY_LOG),
+        "safelock_api": True,
+        "pihole": container_running("pihole"),
+        "netalertx": container_running("netalertx") and os.path.exists(NETALERTX_DB),
+        "opencanary": container_running("opencanary") and os.path.exists(OPENCANARY_LOG),
+        "apprise": container_running("apprise"),
+        "tailscale": service_active("tailscaled"),
         "p0f": os.path.exists(P0F_LOG),
         "passivedns": os.path.exists(PASSIVEDNS_LOG),
-        "pihole": pihole_active(),
     }
     return {
         "status": "ok" if all(services.values()) else "degradado",
         "services": services,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
+
+
+def build_customer_status():
+    internal = build_internal_status()
+    services = internal["services"]
+    premium_active = services.get("pihole", False)
+    customer_services = {
+        "system": {
+            "label": "Sistema principal",
+            "ok": services.get("safelock_api", False),
+        },
+        "network_monitor": {
+            "label": "Monitor de dispositivos",
+            "ok": services.get("netalertx", False),
+        },
+        "intrusion_sensor": {
+            "label": "Sensor de intrusiones",
+            "ok": services.get("opencanary", False),
+        },
+        "threat_blocking": {
+            "label": "Bloqueo de anuncios y amenazas",
+            "ok": premium_active,
+            "premium": True,
+        },
+    }
+    required = ["system", "network_monitor", "intrusion_sensor"]
+    base_ok = all(customer_services[key]["ok"] for key in required)
+    protection_ok = premium_active
+
+    if base_ok and protection_ok:
+        status = "ok"
+        headline = "SafeLock activo"
+    elif base_ok:
+        status = "monitoreo"
+        headline = "Monitoreo activo"
+    else:
+        status = "degradado"
+        headline = "Requiere revision de soporte"
+
+    return {
+        "status": status,
+        "headline": headline,
+        "mode": "premium_dns" if premium_active else "free",
+        "premium_active": premium_active,
+        "services": customer_services,
+        "timestamp": internal["timestamp"],
+    }
+
+
+def require_internal_access(request: Request):
+    client_host = request.client.host if request.client else ""
+    if client_host in {"127.0.0.1", "::1", "localhost"}:
+        return
+
+    token = request.headers.get("x-safelock-internal-token", "")
+    if INTERNAL_STATUS_TOKEN and token == INTERNAL_STATUS_TOKEN:
+        return
+
+    raise HTTPException(status_code=403, detail="Acceso interno restringido.")
+
+
+@app.get("/status")
+def get_status():
+    return build_customer_status()
+
+
+@app.get("/customer-status")
+def get_customer_status():
+    return build_customer_status()
+
+
+@app.get("/internal/status")
+def get_internal_status(request: Request):
+    require_internal_access(request)
+    return build_internal_status()
 
 @app.get("/pihole/stats")
 def get_pihole_stats():

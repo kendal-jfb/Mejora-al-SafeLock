@@ -3,8 +3,6 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, LineChart, Line, CartesianGrid
 } from "recharts";
-import openLockLogoLight from "./assets/LogoBase.png";
-import openLockLogoDark from "./assets/LogoOscuroHD.png";
 
 const API = "http://" + window.location.hostname + ":8090";
 
@@ -277,7 +275,7 @@ function PremiumModal({ isOpen, onClose }) {
           </div>
           {[
             ["Inventario en tiempo real", true, true],
-            ["Detección de Intrusos (Honeypot)", true, true],
+            ["Sensor de intrusiones", true, true],
             ["Filtro Publicitario (AdBlock)", false, true],
             ["Bloqueo de Rastreadores", false, true],
             ["Anti-Phishing Activo", false, true],
@@ -312,11 +310,11 @@ function PremiumModal({ isOpen, onClose }) {
 }
 
 // ── Vistas ─────────────────────────────────────────────────────────────────────
-function Dashboard({ pihole, onOpenPremium, onGoPremium }) {
+function Dashboard({ premiumActive, onOpenPremium, onGoPremium }) {
   const { data: summary, error: sumError } = useAPI("/summary", 15000);
   const { data: honeypot } = useAPI("/honeypot", 15000);
   const { data: devices  } = useAPI("/devices",  30000);
-  const { data: status   } = useAPI("/status",   10000);
+  const { data: status   } = useAPI("/customer-status", 10000);
 
   const alerts  = honeypot?.events?.slice(0,4) || [];
   const sevMap  = { alta:"var(--red)", media:"var(--amber)", baja:"var(--teal-brt)" };
@@ -351,10 +349,10 @@ const lineData = useMemo(() => {
   const pieColors = ["var(--teal-brt)","var(--amber)","var(--red)","var(--text3)","var(--border2)"];
 
   const services = [
-    { key:"netalertx", label:"NetAlertX" },
-    { key:"opencanary", label:"OpenCanary" },
-    { key:"arpwatch",   label:"ArpWatch" },
-    { key:"p0f",        label:"p0f" },
+    { key:"system", label:"Sistema principal" },
+    { key:"network_monitor", label:"Monitor de dispositivos" },
+    { key:"intrusion_sensor", label:"Sensor de intrusiones" },
+    { key:"threat_blocking", label:"Bloqueo de amenazas" },
   ];
 
   return (
@@ -372,7 +370,7 @@ const lineData = useMemo(() => {
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:sumError?"var(--red-dim)":"var(--teal-dim)", border:`1px solid ${hc}`, borderRadius:6, padding:"12px 20px" }}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <Dot color={hc} pulse={!sumError}/>
-          <span style={{ fontFamily:"var(--mono)", fontSize:12, fontWeight:700, letterSpacing:".15em", color:hc }}>{sumError?"DESCONECTADO":"ESCUDO SOC ACTIVO"}</span>
+          <span style={{ fontFamily:"var(--mono)", fontSize:12, fontWeight:700, letterSpacing:".15em", color:hc }}>{sumError?"DESCONECTADO":(status?.headline || "SAFELOCK ACTIVO").toUpperCase()}</span>
           <span className="hide-mobile" style={{ fontSize:13, color:"var(--text2)", marginLeft:8 }}>— {summary?.total_devices??"0"} dispositivos en red</span>
         </div>
       </div>
@@ -439,7 +437,7 @@ const lineData = useMemo(() => {
 
       <div className="main-grid">
         <Panel>
-          <PHead title="Alertas del Honeypot" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${honeypot?.total||0} eventos`}/>
+          <PHead title="Sensor de intrusiones" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${honeypot?.total||0} eventos`}/>
           {alerts.length===0 ? (
             <div style={{ padding:"40px 20px", textAlign:"center" }}>
               <div style={{ display:"flex", justifyContent:"center", marginBottom:12, color:"var(--teal-brt)" }}><Icon.Shield s={32}/></div>
@@ -450,7 +448,7 @@ const lineData = useMemo(() => {
               <span style={{ display:"flex", color:sevMap[e.severity], marginTop:2 }}>{e.severity==="alta"?<Icon.Alert s={16}/>:<Icon.Activity s={16}/>}</span>
               <div>
                 <div style={{ fontSize:13, color:"var(--title)", fontWeight:500, marginBottom:4 }}>{e.description}</div>
-                <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text2)" }}>{e.src_ip} <span style={{color:"var(--text4)"}}>→ puerto</span> {e.dst_port} · {e.service}</div>
+                <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text2)" }}>Origen {e.src_ip} · {e.service}</div>
               </div>
               <div style={{ textAlign:"right" }}>
                 <SevChip sev={e.severity}/>
@@ -461,14 +459,14 @@ const lineData = useMemo(() => {
         </Panel>
 
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <Panel teal={pihole} onClick={pihole ? onGoPremium : onOpenPremium}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderBottom:`1px solid ${pihole?"var(--teal-dim)":"var(--border)"}`, background:pihole?"var(--teal-dim)":"var(--bg1)" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:"var(--mono)", fontSize:11, fontWeight:700, letterSpacing:".15em", color:pihole?"var(--teal-brt)":"var(--text3)" }}>
-                <Icon.Shield s={14} c={pihole?"var(--teal-brt)":"var(--text3)"}/> SAFELOCK SHIELD
+          <Panel teal={premiumActive} onClick={premiumActive ? onGoPremium : onOpenPremium}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", borderBottom:`1px solid ${premiumActive?"var(--teal-dim)":"var(--border)"}`, background:premiumActive?"var(--teal-dim)":"var(--bg1)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:"var(--mono)", fontSize:11, fontWeight:700, letterSpacing:".15em", color:premiumActive?"var(--teal-brt)":"var(--text3)" }}>
+                <Icon.Shield s={14} c={premiumActive?"var(--teal-brt)":"var(--text3)"}/> SAFELOCK SHIELD
               </div>
-              <span style={{ fontFamily:"var(--mono)", fontSize:9, fontWeight:700, background:pihole?"var(--teal-brt)":"var(--text4)", color:pihole?"var(--bg)":"var(--title)", borderRadius:3, padding:"3px 8px", textTransform:"uppercase" }}>{pihole?"PREMIUM ACTIVO":"SUSPENDIDO"}</span>
+              <span style={{ fontFamily:"var(--mono)", fontSize:9, fontWeight:700, background:premiumActive?"var(--teal-brt)":"var(--text4)", color:premiumActive?"var(--bg)":"var(--title)", borderRadius:3, padding:"3px 8px", textTransform:"uppercase" }}>{premiumActive?"PREMIUM ACTIVO":"SUSPENDIDO"}</span>
             </div>
-            {pihole ? (
+            {premiumActive ? (
               <div style={{ padding:16 }}>
                 <div style={{ fontSize:12, color:"var(--text2)", lineHeight:1.6, marginBottom:14 }}>Su red está protegida contra publicidad, phishing y malware.</div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -498,16 +496,19 @@ const lineData = useMemo(() => {
           </Panel>
 
           <Panel>
-            <PHead title="Servicios Base" icon={<Icon.Cpu s={14}/>}/>
+            <PHead title="Estado de SafeLock" icon={<Icon.Cpu s={14}/>}/>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, padding:12 }}>
               {services.map(({key,label}) => {
-                const ok = status?.services?.[key] !== false;
+                const service = status?.services?.[key];
+                const ok = service?.ok !== false;
+                const displayLabel = service?.label || label;
+                const stateLabel = key === "threat_blocking" && !ok ? "Premium inactivo" : ok ? "Funcionando" : "Requiere soporte";
                 return (
                   <div key={key} style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 12px", borderRadius:6, background:"var(--bg3)", border:`1px solid ${ok?"rgba(16,185,129,.2)":"rgba(239,68,68,.3)"}` }}>
                     <Dot color={ok?"var(--ok)":"var(--red)"}/>
                     <div>
-                      <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--title)" }}>{label}</div>
-                      <div style={{ fontFamily:"var(--mono)", fontSize:9, color:ok?"var(--ok)":"var(--text4)", textTransform:"uppercase", marginTop:1 }}>{ok?"Ejecutando":"Detenido"}</div>
+                      <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--title)" }}>{displayLabel}</div>
+                      <div style={{ fontFamily:"var(--mono)", fontSize:9, color:ok?"var(--ok)":"var(--text4)", textTransform:"uppercase", marginTop:1 }}>{stateLabel}</div>
                     </div>
                   </div>
                 );
@@ -743,13 +744,12 @@ function SettingsView() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <Panel>
-            <PHead title="Información del Sistema" icon={<Icon.Cpu s={14}/>}/>
+            <PHead title="Información del dispositivo" icon={<Icon.Cpu s={14}/>}/>
             <div style={{ padding: "8px 0" }}>
               {[
-                ["Hostname", systemInfo?.hostname || "—"],
-                ["IP local", systemInfo?.local_ip || "—"],
-                ["MAC address", systemInfo?.mac_address || "—"],
-                ["Hardware", systemInfo?.hardware || "—"],
+                ["Nombre", systemInfo?.hostname || "—"],
+                ["Dirección local", systemInfo?.local_ip || "—"],
+                ["Modelo", systemInfo?.hardware || "—"],
                 ["Sistema", systemInfo?.system || "—"]
               ].map(([k, v], i, arr) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "11px 16px", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
@@ -1246,8 +1246,8 @@ export default function App() {
   const [menuOpen, setMenu] = useState(false);
   const [showP, setShowP]   = useState(false);
   const [theme, setTheme]   = useState("dark");
-  const { data: statusData }= useAPI("/status", 10000);
-  const pihole = statusData?.services?.pihole ?? true;
+  const { data: statusData }= useAPI("/customer-status", 10000);
+  const premiumActive = statusData?.premium_active ?? true;
 
   const navItems = [
     { id:"dashboard", label:"Dashboard", icon:<Icon.Grid/> },
@@ -1294,8 +1294,13 @@ export default function App() {
         .hamburger{display:none;background:none;border:none;color:var(--text);cursor:pointer;padding:4px;line-height:0}
         .hide-mobile{display:block}
         .device-mobile-meta{display:none}
-        .sidebar-brand{height:60px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0}
-        .sidebar-logo{height:30px;width:auto;display:block}
+        .sidebar-brand{min-height:84px;display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0;background:linear-gradient(180deg,var(--bg1),rgba(41,181,181,.04))}
+        .sidebar-logo-wrap{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(41,181,181,.14),rgba(41,181,181,.04));border:1px solid rgba(41,181,181,.2);box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 10px 24px rgba(0,0,0,.18);flex-shrink:0}
+        .sidebar-logo{height:30px;width:auto;display:block;filter:drop-shadow(0 6px 12px rgba(0,0,0,.18))}
+        .sidebar-brand-copy{display:flex;flex-direction:column;min-width:0}
+        .sidebar-brand-title{font-family:var(--mono);font-size:20px;line-height:1;letter-spacing:.12em;font-weight:700;color:var(--title);text-transform:uppercase}
+        .sidebar-brand-subtitle{margin-top:6px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;line-height:1;color:var(--text3);letter-spacing:.04em}
+        .sidebar-brand-subtitle strong{color:var(--teal-brt);font-weight:600}
         .theme-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;cursor:pointer;line-height:0;transition:.2s;display:flex;align-items:center}
         .theme-btn:hover{border-color:var(--teal-brt)}
         ::-webkit-scrollbar{width:4px}
@@ -1319,7 +1324,11 @@ export default function App() {
         @media(max-width:768px){
           .sidebar{position:fixed;height:100%;transform:translateX(-100%)}
           .sidebar.open{transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,.5)}
+          .sidebar-brand{min-height:76px;padding:12px 16px}
+          .sidebar-logo-wrap{width:46px;height:46px;border-radius:12px}
           .sidebar-logo{height:24px}
+          .sidebar-brand-title{font-size:18px}
+          .sidebar-brand-subtitle{font-size:11px}
           .hamburger{display:flex}
           .scroll-area{padding:16px}
         }
@@ -1327,7 +1336,13 @@ export default function App() {
 
       <aside className={`sidebar ${menuOpen?"open":""}`}>
         <div className="sidebar-brand">
-          <img src={theme==="dark" ? openLockLogoDark : openLockLogoLight} alt="OpenLock" className="sidebar-logo" />
+          <div className="sidebar-logo-wrap">
+            <img src="/safelock-logo.svg" alt="SafeLock" className="sidebar-logo" />
+          </div>
+          <div className="sidebar-brand-copy">
+            <div className="sidebar-brand-title">SafeLock</div>
+            <div className="sidebar-brand-subtitle">by <strong>OpenLock</strong></div>
+          </div>
         </div>
         <div style={{ padding:"20px 12px", display:"flex", flexDirection:"column", gap:4 }}>
           <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", paddingLeft:12, marginBottom:6, letterSpacing:".12em", textTransform:"uppercase" }}>General</div>
@@ -1339,7 +1354,7 @@ export default function App() {
         </div>
         
         <div style={{ marginTop:"auto", padding:"16px 12px", borderTop:"1px solid var(--border)" }}>
-          {pihole ? (
+          {premiumActive ? (
             <button onClick={()=>{setTab("premium"); setMenu(false);}} style={{ width:"100%", padding:16, background:"var(--teal-dim)", color:"var(--teal-brt)", border:"1px solid var(--teal-brt)", borderRadius:8, cursor:"pointer", fontFamily:"var(--mono)", fontSize:12, fontWeight:700, letterSpacing:".1em", textTransform:"uppercase", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
               <Icon.Shield s={18} c="var(--teal-brt)"/> Panel Premium
             </button>
@@ -1358,7 +1373,7 @@ export default function App() {
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <button className="hamburger" onClick={()=>setMenu(true)}><Icon.Menu/></button>
             <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--teal-brt)", display:"flex", alignItems:"center", gap:8, fontWeight:600, letterSpacing:".12em" }}>
-              <Dot color="var(--teal-brt)" pulse/> ESCUDO SOC ACTIVO
+              <Dot color="var(--teal-brt)" pulse/> {(statusData?.headline || "SafeLock activo").toUpperCase()}
             </div>
           </div>
           <button className="theme-btn" onClick={()=>setTheme(t=>t==="dark"?"light":"dark")}>
@@ -1366,7 +1381,7 @@ export default function App() {
           </button>
         </header>
         <main className="scroll-area">
-          {tab==="dashboard" && <Dashboard pihole={pihole} onOpenPremium={()=>setShowP(true)} onGoPremium={()=>setTab("premium")}/>}
+          {tab==="dashboard" && <Dashboard premiumActive={premiumActive} onOpenPremium={()=>setShowP(true)} onGoPremium={()=>setTab("premium")}/>}
           {tab==="devices"   && <DevicesView/>}
           {tab==="settings"  && <SettingsView/>}
           {tab==="premium"   && <PremiumView/>}
