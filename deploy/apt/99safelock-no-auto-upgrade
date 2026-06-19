@@ -1,0 +1,13 @@
+// SafeLock: desactiva TODO el apt automatico/periodico (update + unattended-upgrade).
+//
+// Por que: las cajas H96 RK3566 (4 GB, eMMC, fuente marginal) sufren picos de CPU/IO
+// cuando apt corre de madrugada (descarga de listas + dpkg). Ese pico puede provocar
+// un BROWNOUT (caida de tension) y, si el corte cae en medio de una escritura de
+// kernel/initramfs/u-boot, deja el equipo CORRUPTO y "no enciende". Una unidad murio
+// ~02:36 con este patron. Las actualizaciones del SO se hacen de forma CONTROLADA por
+// el dueño en mantenimiento, no de forma desatendida nocturna.
+APT::Periodic::Enable "0";
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::Unattended-Upgrade "0";
+APT::Periodic::AutocleanInterval "0";

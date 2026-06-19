@@ -112,6 +112,25 @@ fi
 echo "[$DATE] systemd actualizado" >> "$LOG"
 fi
 
+# --- Endurecimiento de sistema (configs que el OTA git NO transporta: /boot/armbianEnv,
+# fstab, watchdog, holds, corte de apt nocturno). Lo aplica apply-hardening.sh, idempotente.
+# Anti-churn: solo se ejecuta cuando cambia el CONTENIDO del script (hash), no cada ciclo.
+HARDENING="$DIR/scripts/apply-hardening.sh"
+HARDENING_FLAG="/var/lib/safelock/hardening.done"
+if [ -f "$HARDENING" ]; then
+    H_NOW=$(sha256sum "$HARDENING" | awk '{print $1}')
+    H_PREV=$(cat "$HARDENING_FLAG" 2>/dev/null || echo "")
+    if [ "$H_NOW" != "$H_PREV" ]; then
+        echo "[$DATE] Endurecimiento: hash nuevo, aplicando configs de sistema..." >> "$LOG"
+        if bash "$HARDENING" >> "$LOG" 2>&1; then
+            echo "$H_NOW" > "$HARDENING_FLAG"
+            echo "[$DATE] Endurecimiento aplicado OK" >> "$LOG"
+        else
+            echo "[$DATE] Endurecimiento devolvio error; NO se marca done (se reintenta)" >> "$LOG"
+        fi
+    fi
+fi
+
 NEW=$(git rev-parse HEAD)
 CHANGED_FILES=$(git diff --name-only "$PREV" "$NEW")
 

@@ -1,28 +1,44 @@
 #!/bin/bash
 # SafeLock - endurecimiento idempotente del sistema (Fase 1). Seguro de re-ejecutar.
-# Aplica resiliencia anti-brick + acceso mDNS + watchdog + flight recorder a UNA unidad.
-# Pensado para correr una vez por equipo (via systemd oneshot con flag .done) en el rollout.
+# Aplica resiliencia anti-brick + acceso mDNS + watchdog + flight recorder + corte del
+# apt automatico nocturno a UNA unidad. Lo invoca el OTA (apply-update.sh) una vez por
+# version (flag por hash), o se puede correr a mano. NO usa 'set -e' a proposito: si un
+# paso falla, el resto debe seguir aplicandose (resiliencia > atomicidad global).
 #
 # NOTA DE ROLLOUT: retira el congelado de IP estatica y deja DHCP+mDNS. Tras aplicarlo, una
 # unidad que estaba en una IP "congelada" puede cambiar de IP; acceder por su nombre mDNS
-# (safelock-<id>.local) o por Tailscale.
+# (safelock-<id>.local) o por Tailscale. POR ESO se despliega primero en 1-2 unidades CANARIO.
 set -u
 
 DIR="${SAFELOCK_DIR:-/root/safeLock_SoC}"
 log() { echo "[hardening] $*"; }
 
-# 1) cmdline del kernel: panic=10 + loglevel=7 + fsck.repair=yes (auto-reparacion de raiz)
+# 1) cmdline del kernel: panic=10 + loglevel=7 + fsck.repair=yes (auto-reparacion de raiz).
+#    Escritura ATOMICA de /boot: editar copia temporal, validar, y recien mv+sync. Un
+#    armbianEnv.txt corrupto = brick que no arranca, asi que nunca se edita in-place.
 ENV=/boot/armbianEnv.txt
 if [ -f "$ENV" ]; then
     [ -f "$ENV.safelock.bak" ] || cp -f "$ENV" "$ENV.safelock.bak"
-    if ! grep -q '^extraargs=' "$ENV"; then
-        echo 'extraargs=panic=10 loglevel=7 fsck.repair=yes' >> "$ENV"
-    else
-        for kv in panic=10 loglevel=7 fsck.repair=yes; do
-            grep -q -- "$kv" "$ENV" || sed -i "s|^extraargs=.*|& $kv|" "$ENV"
-        done
+    tmp="$(mktemp "${ENV}.XXXXXX")" || tmp=""
+    if [ -n "$tmp" ]; then
+        cp -f "$ENV" "$tmp"
+        if ! grep -q '^extraargs=' "$tmp"; then
+            echo 'extraargs=panic=10 loglevel=7 fsck.repair=yes' >> "$tmp"
+        else
+            for kv in panic=10 loglevel=7 fsck.repair=yes; do
+                grep -q -- "$kv" "$tmp" || sed -i "s|^extraargs=.*|& $kv|" "$tmp"
+            done
+        fi
+        # Validar antes de reemplazar: archivo no vacio y con las claves criticas presentes.
+        if [ -s "$tmp" ] && grep -q 'fsck.repair=yes' "$tmp" && grep -q 'panic=10' "$tmp"; then
+            mv -f "$tmp" "$ENV"
+            sync
+            log "cmdline OK ($(grep '^extraargs=' "$ENV"))"
+        else
+            rm -f "$tmp"
+            log "ERROR: armbianEnv generado invalido; se conserva el original intacto"
+        fi
     fi
-    log "cmdline OK ($(grep '^extraargs=' "$ENV"))"
 fi
 
 # 2) fstab: commit=120 -> commit=15 (menos datos en riesgo por corte de energia)
@@ -56,6 +72,22 @@ systemctl reload avahi-daemon 2>/dev/null || systemctl restart avahi-daemon 2>/d
 install -D -m644 "$DIR/systemd/safelock-flight-recorder.service" /etc/systemd/system/safelock-flight-recorder.service
 install -D -m644 "$DIR/systemd/safelock-flight-recorder.timer"   /etc/systemd/system/safelock-flight-recorder.timer
 chmod +x "$DIR/scripts/flight-recorder.sh" 2>/dev/null || true
+
+# 8) NEUTRALIZAR APT AUTOMATICO NOCTURNO (sospechoso #1 de los apagones de madrugada).
+#    apt-daily.timer tiene RandomizedDelaySec=12h -> puede dispararse de madrugada; el pico
+#    de descarga/dpkg es gatillo de brownout y, si toca kernel/u-boot, brick. Las
+#    actualizaciones se haran de forma controlada por el dueño, no desatendidas de noche.
+install -D -m644 "$DIR/deploy/apt/99safelock-no-auto-upgrade" \
+    /etc/apt/apt.conf.d/99safelock-no-auto-upgrade
+systemctl mask --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+systemctl mask --now apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+# cron de Armbian que refresca apt @daily/@reboot -> neutralizar idempotente (conserva backup)
+CRON_ARM=/etc/cron.d/armbian-updates
+if [ -f "$CRON_ARM" ] && grep -qE '^[[:space:]]*[^#].*armbian-apt-updates' "$CRON_ARM"; then
+    [ -f "$CRON_ARM.safelock.bak" ] || cp -f "$CRON_ARM" "$CRON_ARM.safelock.bak"
+    sed -i 's|^\([[:space:]]*[^#].*armbian-apt-updates\)|#SAFELOCK-disabled \1|' "$CRON_ARM"
+fi
+log "apt automatico nocturno deshabilitado (timers enmascarados + cron neutralizado)"
 
 systemctl daemon-reload
 systemctl enable --now safelock-flight-recorder.timer >/dev/null 2>&1 || true
