@@ -2,9 +2,9 @@
 Description=Run SafeLock OTA update periodically
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=10min
-Persistent=true
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=false
 
 [Install]
 WantedBy=timers.target
