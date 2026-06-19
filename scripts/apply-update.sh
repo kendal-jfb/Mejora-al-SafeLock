@@ -19,6 +19,15 @@ git fetch origin master >> "$LOG" 2>&1
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/master)
 
+BAD_COMMIT_FILE="/var/lib/safelock/bad_commit"
+# Anti-oscilacion: si el remoto es un commit ya marcado como malo (fallo health-check
+# en un ciclo previo), NO lo reapliques cada 10 min; quedate en el ultimo bueno hasta
+# que origin/master avance a un commit distinto.
+if [ "$LOCAL" != "$REMOTE" ] && [ -f "$BAD_COMMIT_FILE" ] && [ "$REMOTE" = "$(cat "$BAD_COMMIT_FILE")" ]; then
+    echo "[$DATE] origin/master ($REMOTE) marcado como MALO; se omite hasta nuevo commit." >> "$LOG"
+    exit 0
+fi
+
 backup_conflicting_untracked() {
     local backup_dir="$BACKUP_ROOT/$(date '+%Y%m%d-%H%M%S')"
     local moved=0
@@ -113,18 +122,22 @@ if echo "$CHANGED_FILES" | grep -Eq '^(api/|scripts/|systemd/)'; then
 fi
 
 if echo "$CHANGED_FILES" | grep -q '^portal/'; then
-    cd "$DIR/portal"
-    npm run build >> "$LOG" 2>&1
+    # El portal se versiona YA COMPILADO (portal/dist) y se construye en CI.
+    # NO se hace 'npm run build' en el equipo: evita el pico de RAM/energia en una
+    # caja de 4 GB que puede provocar brownout/apagon durante la actualizacion.
     systemctl restart safelock-portal
-    echo "[$DATE] Portal reconstruido y reiniciado" >> "$LOG"
+    echo "[$DATE] Portal actualizado (dist precompilado) y reiniciado" >> "$LOG"
 fi
 
 if bash "$DIR/scripts/health-check.sh" >> "$LOG" 2>&1; then
     echo "[$DATE] Health check OK" >> "$LOG"
 else
-    echo "[$DATE] Health check fallo - iniciando rollback" >> "$LOG"
+    echo "[$DATE] Health check fallo - marcando commit MALO y haciendo rollback" >> "$LOG"
+    echo "$REMOTE" > "$BAD_COMMIT_FILE"
     bash "$DIR/scripts/rollback.sh" >> "$LOG" 2>&1 || true
     exit 1
 fi
 
+# Aplicacion exitosa: limpia cualquier marca de commit malo previa.
+rm -f "$BAD_COMMIT_FILE" 2>/dev/null || true
 echo "[$DATE] Actualizacion completada exitosamente" >> "$LOG"

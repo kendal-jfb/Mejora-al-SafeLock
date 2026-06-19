@@ -4,12 +4,11 @@ set -u
 LOG="/var/log/heartbeat.log"
 API_URL="https://safelock-telemetry.onrender.com/heartbeat"
 
-# El secreto NO va en el codigo versionado: se carga de un fichero local 0600
-# (provisionado por fabrica, fuera de git). Si falta, el heartbeat falla de forma
-# segura (sin secreto) en vez de exponerlo en el repo.
-SECRET_FILE="${SAFELOCK_SECRET_FILE:-/etc/safelock/telemetry.env}"
-[ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
-API_SECRET="${API_SECRET:-}"
+# Secreto compartido de la flota, en el repo privado (riesgo aceptado por el dueno:
+# evita provisionar una llave por equipo en 40+ unidades). Override opcional por
+# /etc/safelock/telemetry.env si en el futuro se quieren claves por equipo.
+API_SECRET="openlock2026"
+[ -r /etc/safelock/telemetry.env ] && . /etc/safelock/telemetry.env
 
 DEVICE_ID="safelock-$(cat /sys/class/net/end0/address | tr -d ':')"
 TAILSCALE_IP="$(tailscale ip -4 2>/dev/null | head -1)"

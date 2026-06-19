@@ -15,8 +15,9 @@ config.json
 node_modules/
 portal/node_modules/
 
-# Build del portal
-portal/dist/
+# Build del portal: AHORA se versiona ya compilado (portal/dist) para no construir
+# en el equipo (evita pico de RAM/energia). El build se hace en CI antes de publicar.
+# portal/dist/
 
 # Docker volumes
 netalertx/data/
