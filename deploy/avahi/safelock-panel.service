@@ -1,0 +1,12 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Publica el panel SafeLock por mDNS: http://<hostname>.local:5173 (sin IP estatica). -->
+<service-group>
+  <name replace-wildcards="yes">SafeLock Panel en %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>5173</port>
+    <txt-record>path=/</txt-record>
+    <txt-record>product=safelock</txt-record>
+  </service>
+</service-group>

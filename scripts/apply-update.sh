@@ -43,13 +43,16 @@ backup_conflicting_untracked() {
 }
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-    echo "[$DATE] Sin cambios en repo, pero aplicando configuracion..." >> "$LOG"
+    echo "[$DATE] Sin cambios en repo; no se reaplica config (anti-churn eMMC)." >> "$LOG"
+    CHANGED=0
 else
     echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
     backup_conflicting_untracked
     git reset --hard origin/master >> "$LOG" 2>&1
+    CHANGED=1
 fi
 
+if [ "${CHANGED:-1}" = "1" ]; then
 cp -f "$DIR"/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
 cp -f "$DIR"/systemd/*.timer /etc/systemd/system/ 2>/dev/null || true
 cp -f "$DIR"/deploy/systemd/*.service /etc/systemd/system/ 2>/dev/null || true
@@ -98,6 +101,7 @@ if [ -f "/etc/systemd/system/safelock-pack-scheduler.timer" ]; then
 fi
 
 echo "[$DATE] systemd actualizado" >> "$LOG"
+fi
 
 NEW=$(git rev-parse HEAD)
 CHANGED_FILES=$(git diff --name-only "$PREV" "$NEW")

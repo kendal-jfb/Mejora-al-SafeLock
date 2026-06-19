@@ -179,6 +179,8 @@ def get_system_info():
         "hostname": hostname,
         "local_ip": ip_addr,
         "portal_url": f"http://{ip_addr}:5173",
+        # Direccion estable por mDNS (no cambia aunque cambie la IP/red del cliente).
+        "portal_url_mdns": f"http://{hostname}.local:5173",
         "primary_interface": interface or "—",
         "mac_address": get_mac_addr(interface),
         "hardware": "SafeLock V2",
@@ -401,7 +403,7 @@ def get_summary():
 @app.get("/myip")
 def get_myip():
     info = get_system_info()
-    return {"ip": info["local_ip"], "portal_url": info["portal_url"]}
+    return {"ip": info["local_ip"], "portal_url": info["portal_url"], "portal_url_mdns": info["portal_url_mdns"]}
 
 @app.get("/system-info")
 def get_system_info_endpoint():

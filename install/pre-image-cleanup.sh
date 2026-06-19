@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+# GUARD: script SOLO para preparar la imagen maestra (pipeline de build).
+# En un equipo de campo DESTRUYE identidad/acceso (Tailscale, machine-id, flags .done).
+if [ "${SAFELOCK_ALLOW_IMAGE_CLEANUP:-0}" != "1" ]; then
+    echo "ABORT: preparacion de imagen. Exporta SAFELOCK_ALLOW_IMAGE_CLEANUP=1 para confirmar." >&2
+    exit 1
+fi
+
 echo "=== SafeLock Pre-Image Cleanup ==="
 
 echo "[1/8] Deteniendo servicios que fijan estado..."

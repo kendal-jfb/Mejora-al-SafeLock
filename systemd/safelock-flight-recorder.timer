@@ -1,0 +1,11 @@
+[Unit]
+Description=SafeLock Flight Recorder cada minuto
+
+[Timer]
+OnBootSec=30sec
+OnUnitActiveSec=60sec
+AccuracySec=5sec
+Persistent=false
+
+[Install]
+WantedBy=timers.target

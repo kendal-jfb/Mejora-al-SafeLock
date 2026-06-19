@@ -3,7 +3,13 @@ set -u
 
 LOG="/var/log/heartbeat.log"
 API_URL="https://safelock-telemetry.onrender.com/heartbeat"
-API_SECRET="openlock2026"
+
+# El secreto NO va en el codigo versionado: se carga de un fichero local 0600
+# (provisionado por fabrica, fuera de git). Si falta, el heartbeat falla de forma
+# segura (sin secreto) en vez de exponerlo en el repo.
+SECRET_FILE="${SAFELOCK_SECRET_FILE:-/etc/safelock/telemetry.env}"
+[ -r "$SECRET_FILE" ] && . "$SECRET_FILE"
+API_SECRET="${API_SECRET:-}"
 
 DEVICE_ID="safelock-$(cat /sys/class/net/end0/address | tr -d ':')"
 TAILSCALE_IP="$(tailscale ip -4 2>/dev/null | head -1)"

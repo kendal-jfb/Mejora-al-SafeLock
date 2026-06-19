@@ -12,11 +12,16 @@ echo "Subred detectada: $SUBNET"
 CONFIG_FILE="/root/safeLock_SoC/netalertx/data/config/app.conf"
 
 if [ -f "$CONFIG_FILE" ]; then
-    sed -i "s|^SCAN_SUBNETS=\[.*\]|SCAN_SUBNETS=['$SUBNET --interface=end0']|" "$CONFIG_FILE"
-    echo "Configuracion actualizada: $SUBNET --interface=end0"
-    cd /root/safeLock_SoC/netalertx
-    docker compose restart netalertx
-    echo "NetAlertX reiniciado"
+    DESIRED="SCAN_SUBNETS=['$SUBNET --interface=end0']"
+    if grep -qF "$DESIRED" "$CONFIG_FILE"; then
+        echo "Subred sin cambios ($SUBNET); no se reinicia NetAlertX (anti-churn)."
+    else
+        sed -i "s|^SCAN_SUBNETS=\[.*\]|$DESIRED|" "$CONFIG_FILE"
+        echo "Configuracion actualizada: $SUBNET --interface=end0"
+        cd /root/safeLock_SoC/netalertx
+        docker compose restart netalertx
+        echo "NetAlertX reiniciado"
+    fi
 else
     echo "Archivo de configuracion no encontrado"
 fi

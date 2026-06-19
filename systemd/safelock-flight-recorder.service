@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock Flight Recorder (telemetria forense a eMMC)
+# Sin dependencia de red: debe registrar incluso si la red no esta lista.
+
+[Service]
+Type=oneshot
+ExecStart=/root/safeLock_SoC/scripts/flight-recorder.sh
+Nice=10
+IOSchedulingClass=idle
