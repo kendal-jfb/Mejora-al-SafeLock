@@ -1,0 +1,15 @@
+[Unit]
+Description=SafeLock golden firstboot re-personalization (solo clones; no-op en el master)
+# Debe correr ANTES de que Tailscale registre el nodo, para que un clon no aparezca
+# en el tailnet con la identidad del master.
+After=network-pre.target local-fs.target
+Before=tailscaled.service safelock-api.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/safelock-firstboot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
