@@ -13,7 +13,9 @@ set -u
 MARKER=/etc/safelock/golden-master-id
 IFACE=end0
 RS=/var/lib/safelock
-log(){ logger -t safelock-firstboot "$*" 2>/dev/null; echo "[firstboot] $*"; }
+mkdir -p "$RS" 2>/dev/null || true
+# log PERSISTENTE en eMMC (sobrevive a los reboots): si un clon vuelve a fallar, se lee por SSH.
+log(){ logger -t safelock-firstboot "$*" 2>/dev/null; echo "[firstboot $(date '+%F %T')] $*" | tee -a "$RS/firstboot.log" 2>/dev/null; }
 safe_reboot(){ sync; systemctl reboot 2>/dev/null || reboot -f || true; exit 0; }
 
 HW=$(cat "/sys/class/net/$IFACE/address" 2>/dev/null | tr -d ':')

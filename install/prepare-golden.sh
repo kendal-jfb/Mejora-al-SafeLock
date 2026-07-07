@@ -38,8 +38,9 @@ prepare)
     # "detenido por el usuario" y NO se reiniciaria en el clon. 'pause' congela las escrituras
     # (imagen consistente) pero deja el contenedor como en ejecución -> el clon lo levanta solo.
     docker pause $(docker ps -q) 2>/dev/null || true
-    # que el clon arranque la expansión de disco desde cero
-    rm -f /var/lib/safelock/resize.part /var/lib/safelock/resize.done 2>/dev/null || true
+    # que el clon arranque la expansión de disco y el log de firstboot desde cero
+    rm -f /var/lib/safelock/resize.part /var/lib/safelock/resize.done \
+          /var/lib/safelock/firstboot.log 2>/dev/null || true
     sync; sync
     # TRIM del espacio libre: deja los bloques no usados en cero -> gzip los comprime casi a nada,
     # así el stream pesa ~ solo los datos usados (no los 29 GB del bloque). Es de bajo desgaste.
