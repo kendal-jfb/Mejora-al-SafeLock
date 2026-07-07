@@ -4,8 +4,8 @@ import requests
 from datetime import datetime
 
 # --- CONFIGURACIÓN DEL SOC ---
-# Cambia esto por la URL real de tu backend en Render
-SOC_URL = "https://safelock-telemetry.onrender.com/heartbeat" 
+# Cambia esto por la URL real de tu backend
+SOC_URL = "https://telemetry.openlocksecurity.com/heartbeat"
 API_SECRET = "openlock2026"
 
 def get_device_id():

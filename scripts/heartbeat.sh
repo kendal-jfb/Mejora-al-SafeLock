@@ -2,7 +2,7 @@
 set -u
 
 LOG="/var/log/heartbeat.log"
-API_URL="https://safelock-telemetry.onrender.com/heartbeat"
+API_URL="https://telemetry.openlocksecurity.com/heartbeat"
 
 # Secreto compartido de la flota, en el repo privado (riesgo aceptado por el dueno:
 # evita provisionar una llave por equipo en 40+ unidades). Override opcional por
