@@ -30,6 +30,29 @@ fi
 # ---------- Soy un CLON nuevo (MAC $HW != horneado $BAKED): re-personalizar ----------
 log "CLON detectado (MAC $HW, horneado $BAKED). Re-personalizando identidad limpia..."
 
+# ---------- 0) Expandir el disco (la imagen viene ENCOGIDA por pishrink) ----------
+# Máquina de 2 fases: el kernel 6.x necesita un reboot para releer la tabla tras crecer la
+# partición. Corre ANTES de reclamar identidad (el marcador se hornea al FINAL), por eso
+# sobrevive a los reboots — y como está dentro de la rama de CLON, NUNCA se ejecuta en el master.
+DISK=/dev/mmcblk1; ROOTDEV=/dev/mmcblk1p1; RS=/var/lib/safelock; mkdir -p "$RS"
+if [ ! -f "$RS/resize.done" ]; then
+    if [ ! -f "$RS/resize.part" ]; then
+        log "expandiendo partición al 100% del disco (parted -f repara además la GPT corta de pishrink)..."
+        if parted -s -f "$DISK" resizepart 1 100% >/dev/null 2>&1; then
+            touch "$RS/resize.part"; sync
+            log "partición expandida; reinicio para que el kernel relea la tabla..."
+            systemctl reboot; exit 0
+        else
+            log "WARN: parted resizepart falló; continúo sin expandir (revisar en el canario)"
+            touch "$RS/resize.done"
+        fi
+    else
+        log "expandiendo filesystem al 100% (resize2fs)..."
+        resize2fs "$ROOTDEV" >/dev/null 2>&1 || log "WARN: resize2fs falló (revisar en el canario)"
+        touch "$RS/resize.done"; rm -f "$RS/resize.part"
+    fi
+fi
+
 # 1) machine-id nuevo
 rm -f /etc/machine-id /var/lib/dbus/machine-id
 systemd-machine-id-setup >/dev/null 2>&1

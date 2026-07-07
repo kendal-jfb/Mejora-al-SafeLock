@@ -34,7 +34,12 @@ prepare)
     systemctl stop safelock-flight-recorder.timer safelock-heartbeat.timer \
                    safelock-pack-scheduler.timer connectivity-watchdog.timer 2>/dev/null || true
     systemctl stop safelock-api safelock-portal 2>/dev/null || true
-    docker stop $(docker ps -q) 2>/dev/null || true
+    # Docker: PAUSE (no stop). 'docker stop' con restart=unless-stopped marca el contenedor como
+    # "detenido por el usuario" y NO se reiniciaria en el clon. 'pause' congela las escrituras
+    # (imagen consistente) pero deja el contenedor como en ejecución -> el clon lo levanta solo.
+    docker pause $(docker ps -q) 2>/dev/null || true
+    # que el clon arranque la expansión de disco desde cero
+    rm -f /var/lib/safelock/resize.part /var/lib/safelock/resize.done 2>/dev/null || true
     sync; sync
     # TRIM del espacio libre: deja los bloques no usados en cero -> gzip los comprime casi a nada,
     # así el stream pesa ~ solo los datos usados (no los 29 GB del bloque). Es de bajo desgaste.
@@ -46,7 +51,7 @@ prepare)
     ;;
 restore)
     echo "[prepare-golden] reviviendo servicios..."
-    docker start $(docker ps -aq) 2>/dev/null || true
+    docker unpause $(docker ps -q) 2>/dev/null || true
     systemctl start safelock-api safelock-portal 2>/dev/null || true
     systemctl start safelock-flight-recorder.timer safelock-heartbeat.timer \
                     safelock-pack-scheduler.timer connectivity-watchdog.timer 2>/dev/null || true
