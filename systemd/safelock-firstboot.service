@@ -1,13 +1,18 @@
 [Unit]
 Description=SafeLock golden firstboot re-personalization (solo clones; no-op en el master)
 # Debe correr ANTES de que Tailscale registre el nodo, para que un clon no aparezca
-# en el tailnet con la identidad del master.
+# en el tailnet con la identidad del master. NO gatea safelock-api: si el firstboot
+# tuviera un problema, la API/SSH deben poder levantar igual (no quedar rehenes).
 After=network-pre.target local-fs.target
-Before=tailscaled.service safelock-api.service
+Before=tailscaled.service
 Wants=network-pre.target
 
 [Service]
 Type=oneshot
+# 600s: el resize2fs de un rootfs grande puede pasar de los 90s por defecto (si systemd
+# lo matara a media expansión dejaría la caja atascada). Aun así el script tiene timeouts
+# internos por comando y SIEMPRE reinicia al final.
+TimeoutStartSec=600
 ExecStart=/usr/local/sbin/safelock-firstboot.sh
 RemainAfterExit=yes
 
