@@ -134,8 +134,15 @@ install -D -m644 "$DIR/deploy/timesyncd/safelock.conf" /etc/systemd/timesyncd.co
 systemctl restart systemd-timesyncd >/dev/null 2>&1 || true
 log "timesyncd con NTP numerico (sin dependencia del DNS local)"
 
+# 14) Sentinela de apagado: distingue apagado limpio de CORTE DE ENERGIA (forense real
+#     del modo de falla, sin reservar memoria ni tocar el device-tree = cero riesgo de brick).
+chmod +x "$DIR/scripts/boot-sentinel.sh" 2>/dev/null || true
+install -D -m644 "$DIR/systemd/safelock-boot-sentinel.service" /etc/systemd/system/safelock-boot-sentinel.service
+log "sentinela de apagado instalado"
+
 systemctl daemon-reload
 systemctl enable --now safelock-flight-recorder.timer >/dev/null 2>&1 || true
+systemctl enable --now safelock-boot-sentinel.service >/dev/null 2>&1 || true
 systemctl enable safelock-cpufreq.service >/dev/null 2>&1 || true
 systemctl restart p0f >/dev/null 2>&1 || true               # aplica StandardOutput=null
 systemctl restart systemd-journald >/dev/null 2>&1 || true  # aplica el techo del journal

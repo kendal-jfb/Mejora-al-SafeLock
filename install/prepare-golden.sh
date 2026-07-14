@@ -30,6 +30,12 @@ prepare)
     echo "[prepare-golden] VERIFICACIÓN (dry-run del firstboot; DEBE decir 'no-op'):"
     bash /usr/local/sbin/safelock-firstboot.sh
 
+    echo "[prepare-golden] aplicando endurecimiento (idempotente) para hornearlo en la imagen..."
+    bash "$DIR/scripts/apply-hardening.sh" || echo "[prepare-golden] WARN: apply-hardening devolvió error (revisar arriba)"
+
+    echo "[prepare-golden] limpieza de imagen (cache de apt; los logs del dispositivo los limpia el firstboot del clon)..."
+    apt-get clean >/dev/null 2>&1 || true
+
     echo "[prepare-golden] deteniendo escritores para imagen consistente..."
     systemctl stop safelock-flight-recorder.timer safelock-heartbeat.timer \
                    safelock-pack-scheduler.timer connectivity-watchdog.timer 2>/dev/null || true

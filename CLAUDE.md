@@ -104,6 +104,27 @@ Todo lo nuevo entra en `scripts/apply-hardening.sh` (pasos **9–13**, idempoten
 `daemon.json` pasa `dockerd --validate`, p0f 0 líneas/h al journal, disco 29 G al 26 %, governor=conservative,
 0 módulos BT cargados. **Aún NO desplegado a la flota** (viaja por imagen golden / OTA cuando el dueño lo ordene).
 
+### 4.2 Barrido forense + preparación de imagen (2026-07-14, misma rama)
+**Barrido de causas:** NO hay causa de software (sin OOM, sin bucle de reinicio, térmico máx 55.6 °C, sin errores
+eMMC/FS, sin eventos PMIC, sin servicios caídos). Refuerza que el disparador es **energía/hardware**. eMMC sana pero
+**vieja (fab 05/2018)**. **El flight recorder estaba ciego** y se corrigió (`scripts/flight-recorder.sh`): SARADC leía
+**1023 fijo** (sin sensor de voltaje real → no prueba brownout; anotado), y `throttled` daba falsos positivos → ahora usa
+throttle térmico real (`cooling_device cur_state`). **RTC sin batería** (arranca 2017; fake-hwclock+NTP). `resolv.conf`
+inmutable = 8.8.8.8/1.1.1.1 (no pihole; warning de Tailscale DNS es cosmético).
+**Nuevo forense (cero riesgo de brick):** **sentinela de apagado** (`scripts/boot-sentinel.sh` +
+`systemd/safelock-boot-sentinel.service`, paso 14 de apply-hardening): en cada arranque detecta si el apagado previo fue
+**corte de energía** (marca `running` que un corte nunca desarma) vs **limpio** (`ExecStop` escribe `clean`); registra en
+`/var/lib/safelock/telemetry/boot-events.log` + contador en `/var/lib/safelock/unclean-count`. **Es el forense correcto
+para el modo de falla real** (las cajas pierden corriente), y no necesita tocar DT/memoria como ramoops.
+**Ramoops (dump de pánico):** helper **`install/enable-ramoops.sh`** listo pero **GATED**: exige `SAFELOCK_ALLOW_RAMOOPS=1`
+y **se niega a correr en el master** (MAC==golden-master-id). Usa `reserve_mem=1M:0x1000:ramoops` (kernel 6.12 elige la
+dirección = sin hardcodear = sin brick por dirección). **Validar SOLO en canario** (cambia cmdline + reboot). Probado que
+aborta y no toca `/boot` en esta unidad.
+**Imagen:** `install/prepare-golden.sh` ahora aplica hardening + `apt clean` antes de capturar; `install/golden-firstboot.sh`
+resetea logs/telemetría/sentinela del master para que el clon empiece limpio. Checklist completo en
+**`docs/IMAGEN-GOLDEN-checklist.md`** (pre-captura, ramoops-canario, captura dd|gzip+PiShrink, validación de canario,
+decisión OTA). `apt clean` ya hecho en la referencia (liberó 258 MB).
+
 ## 5. ⚠️ REGLAS CRÍTICAS (leer antes de actuar)
 1. **NO mergear a `master` sin orden explícita y estrategia de canario.** `master` = lo que la flota tira por OTA. Un
    merge despliega a cualquier unidad ONLINE en ≤30 min. Hoy hay 0 online, pero la regla se mantiene.

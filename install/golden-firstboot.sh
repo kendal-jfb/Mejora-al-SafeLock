@@ -79,7 +79,12 @@ rm -rf /var/lib/tailscale/* 2>/dev/null || true
 # ---------- 5) borrar estado del master que NO debe heredarse ----------
 rm -f /var/lib/safelock/telemetry/* /var/lib/safelock/previous_commit \
       /var/lib/safelock/bad_commit /var/lib/safelock/hardening.done 2>/dev/null || true
+# sentinela de apagado: que el clon empiece su propio conteo (no herede el del master)
+rm -f /var/lib/safelock/power-state /var/lib/safelock/unclean-count 2>/dev/null || true
 : > /var/log/safelock-update.log 2>/dev/null || true
+: > /var/log/heartbeat.log 2>/dev/null || true
+# journal del master: no debe viajar al clon (privacidad + tamaño)
+journalctl --rotate >/dev/null 2>&1 || true; journalctl --vacuum-time=1s >/dev/null 2>&1 || true
 rm -f /var/lib/dhcp/* /var/lib/dhcpcd/*.lease 2>/dev/null || true
 rm -f /etc/fake-hwclock.data /var/lib/systemd/random-seed 2>/dev/null || true
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=SafeLock sentinela de apagado limpio vs corte de energía (forense)
+Documentation=file:///root/safeLock_SoC/scripts/boot-sentinel.sh
+# Correr tarde para que el reloj ya esté sincronizado (mejor timestamp); la detección
+# NO depende del reloj (usa el archivo-marca), pero el registro queda con mejor hora.
+After=systemd-timesyncd.service network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/root/safeLock_SoC/scripts/boot-sentinel.sh boot
+# ExecStop corre en el apagado ORDENADO. Un corte de energía NO lo ejecuta -> la marca
+# queda "running" y el próximo arranque lo detecta como apagado sucio.
+ExecStop=/root/safeLock_SoC/scripts/boot-sentinel.sh shutdown
+
+[Install]
+WantedBy=multi-user.target
