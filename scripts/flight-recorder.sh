@@ -40,8 +40,14 @@ LOAD1="$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"
 MEM_AVAIL="$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null)"
 SWAP_USED="$(awk '/SwapTotal/{t=$2} /SwapFree/{f=$2} END{print (t-f)+0}' /proc/meminfo 2>/dev/null)"
 CPU_CUR="$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo NA)"
-CPU_MAX="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null || echo NA)"
-THROT="no"; [ "$CPU_CUR" != "NA" ] && [ "$CPU_MAX" != "NA" ] && [ "$CPU_CUR" -lt "$CPU_MAX" ] 2>/dev/null && THROT="yes"
+CPU_MAX="$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || echo NA)"
+# 'throttled' REAL = el gobernador termico esta limitando la frecuencia (cooling_device
+# cur_state > 0). El criterio viejo (cur < max) daba "yes" en reposo normal -> ruido; peor
+# tras fijar un techo de CPU. Ahora solo marca cuando de verdad hay recorte por temperatura.
+THROT="no"
+for cd in /sys/class/thermal/cooling_device*/cur_state; do
+    s="$(cat "$cd" 2>/dev/null)"; [ -n "$s" ] && [ "$s" -gt 0 ] 2>/dev/null && { THROT="yes"; break; }
+done
 
 CPU_TEMP="NA"; GPU_TEMP="NA"
 for z in /sys/class/thermal/thermal_zone*; do
@@ -53,7 +59,10 @@ for z in /sys/class/thermal/thermal_zone*; do
     esac
 done
 
-# SARADC: util para detectar caida de tension de alimentacion (brownout)
+# SARADC: la idea era detectar brownout, PERO en este hardware el canal 0 lee 1023 fijo
+# (saturado / sin divisor conectado al riel de 5V) -> NO mide voltaje real. Se conserva la
+# columna por compatibilidad, pero NO sirve para probar caidas de tension. El RK3566 no
+# expone un flag de undervoltage; la caida de energia solo se infiere del reset abrupto.
 SARADC_RAW="$(cat /sys/bus/iio/devices/iio:device0/in_voltage0_raw 2>/dev/null || echo NA)"
 SARADC_SCALE="$(cat /sys/bus/iio/devices/iio:device0/in_voltage_scale 2>/dev/null || echo NA)"
 
