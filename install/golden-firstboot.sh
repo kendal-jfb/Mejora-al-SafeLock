@@ -34,17 +34,21 @@ DISK=/dev/mmcblk1; ROOTDEV=/dev/mmcblk1p1
 if [ ! -f "$RS/resize.done" ]; then
     if [ ! -f "$RS/resize.part" ]; then
         log "expandiendo partición al 100% del disco..."
-        if timeout 60 parted -s -f "$DISK" resizepart 1 100% >/dev/null 2>&1; then
-            touch "$RS/resize.part"
-            log "partición expandida; reinicio para que el kernel relea la tabla..."
-            safe_reboot
-        else
-            log "WARN: parted resizepart falló; continúo sin expandir"
-            touch "$RS/resize.done"
-        fi
+        # OJO (bug corregido): parted sale con código !=0 por el warning de "GPT backup
+        # no está al final del disco" (pishrink deja el header viejo) AUNQUE SÍ redimensione.
+        # El script viejo condicionaba al exit code -> se rendía y NUNCA corría resize2fs
+        # -> el clon quedaba con el FS a 9 GB dentro de una partición de 29 GB. Ahora:
+        #  a) 'parted -f print' mueve/arregla el GPT backup al final (limpia el warning),
+        #  b) resizepart sin gate por exit code, y c) la salida va al log (no se oculta).
+        timeout 30 parted -s -f "$DISK" print              >>"$RS/firstboot.log" 2>&1 || true
+        timeout 60 parted -s -f "$DISK" resizepart 1 100%  >>"$RS/firstboot.log" 2>&1 || true
+        touch "$RS/resize.part"
+        log "partición procesada; reinicio para que el kernel relea la tabla..."
+        safe_reboot
     else
-        log "creciendo filesystem (resize2fs)..."
-        timeout 300 resize2fs "$ROOTDEV" >/dev/null 2>&1 || log "WARN: resize2fs falló"
+        log "creciendo filesystem (resize2fs) para llenar la partición..."
+        # Idempotente: si el FS ya llena la partición, es no-op; si no, la crece.
+        timeout 300 resize2fs "$ROOTDEV" >>"$RS/firstboot.log" 2>&1 || log "WARN: resize2fs falló"
         touch "$RS/resize.done"; rm -f "$RS/resize.part"
     fi
 fi

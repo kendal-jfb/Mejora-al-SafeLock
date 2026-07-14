@@ -1,0 +1,17 @@
+[Unit]
+Description=SafeLock CPU cap (governor conservative + max 1.416GHz) para reducir picos de corriente y calor
+Documentation=file:///root/safeLock_SoC/docs/diagnostico-apagones.md
+# Corre despues del ajuste de Armbian para tener la ultima palabra sobre el governor.
+After=armbian-hardware-optimize.service
+DefaultDependencies=no
+After=sysinit.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Idempotente: fija governor y techo de frecuencia en todas las policies del cluster.
+ExecStart=/bin/sh -c 'for p in /sys/devices/system/cpu/cpufreq/policy*; do [ -w "$p/scaling_governor" ] && echo conservative > "$p/scaling_governor" || true; [ -w "$p/scaling_max_freq" ] && echo 1416000 > "$p/scaling_max_freq" || true; done'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+# SafeLock: perfil de CPU para alargar la vida del hardware.
+# Lo lee armbian-hardware-optimization al arrancar (GOVERNOR/MAX_SPEED).
+# - GOVERNOR=conservative: sube la frecuencia de forma GRADUAL en vez del salto
+#   instantaneo de ondemand -> perfil de corriente suave = menos estres en fuentes
+#   marginales (gatillo #1 de los apagones).
+# - MAX_SPEED=1416000: tapa 1.8 GHz -> 1.416 GHz. El workload de red usa <1.0 de
+#   carga; recorta el pico de corriente y el calor sin impacto funcional.
+# El servicio safelock-cpufreq.service refuerza esto por sysfs (autoritativo).
+ENABLE=true
+MIN_SPEED=408000
+MAX_SPEED=1416000
+GOVERNOR=conservative

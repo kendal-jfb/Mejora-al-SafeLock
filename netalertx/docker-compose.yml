@@ -1,3 +1,11 @@
+# SafeLock: logging acotado en todos los servicios. Sin esto, json-file crece sin
+# tope en eMMC (contribuye a llenar el disco y al desgaste). Ancla reutilizable.
+x-logging: &safelock-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   netalertx:
     container_name: netalertx
@@ -6,6 +14,7 @@ services:
     privileged: true
     restart: unless-stopped
     init: true
+    logging: *safelock-logging
     volumes:
       - ./data/config:/data/config
       - ./data/db:/data/db
@@ -20,11 +29,13 @@ services:
     image: caronc/apprise:latest
     network_mode: host
     restart: unless-stopped
+    logging: *safelock-logging
 
   opencanary:
     container_name: opencanary
     image: cifre/opencanary:latest
     network_mode: host
     restart: unless-stopped
+    logging: *safelock-logging
     volumes:
       - ./data/opencanary:/var/log

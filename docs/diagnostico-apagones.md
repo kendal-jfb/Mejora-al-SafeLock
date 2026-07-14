@@ -108,4 +108,42 @@ Para cada unidad caída, anotar:
 
 ---
 
+## 7. Actualización 2026-07-14 — muerte de la unidad maestra y blindaje por software
+
+**Qué pasó:** tras varias idas de luz en el sitio, la **unidad maestra/golden** (la de referencia sobre la que se
+construyó la imagen) **se apagó y ya no enciende: sin ningún LED**. Ese síntoma —cero señales de vida— apunta a
+**hardware de alimentación** (la fuente de pared o la etapa de poder de la placa), no a software: el endurecimiento
+anti-corrupción no puede salvar una fuente muerta. Es coherente con la causa raíz #1 (fuentes marginales que se degradan
+con los picos al volver la luz). La unidad es **recuperable** porque la imagen golden está respaldada fuera del equipo.
+
+**Confirmación de que el anti-brick funciona:** una unidad clon viva sobrevivió **dos cortes eléctricos sucios** (9 y 14
+de julio) sin dañarse — arrancó sola, se auto-reparó el disco y los 4 servicios quedaron sanos. El blindaje de software
+hace su trabajo; lo que falla es la energía.
+
+**Nuevo objetivo: que las cajas vivan lo más posible.** Como el disparador es físico, se aplicó **todo lo posible desde
+software para reducir el estrés que degrada el hardware** (validado en la unidad viva, horneable en la imagen y
+entregable por actualización remota):
+
+1. **Techo de CPU + arranque suave de frecuencia** (governor *conservative*, máximo 1.8 → 1.416 GHz). El mayor gatillo de
+   muerte de fuentes es el **pico de corriente** cuando la CPU salta a máxima velocidad de golpe; ahora sube gradual y
+   con tope. Menos corriente pico y menos calor, **sin impacto** en el servicio (el trabajo de red usa una fracción de la
+   CPU).
+2. **Radios apagadas** (Bluetooth/WiFi que el producto no usa): menos consumo, menos calor interno, menos superficie de
+   ataque.
+3. **Menos escritura a la memoria** (fuente de corrupción ante cortes): se silenció un componente que escribía ~4.800
+   líneas/hora de registro, se acotaron los registros del sistema y de los contenedores (antes crecían **sin límite** y
+   llenaban el disco). Menos escritura = menos ventanas en las que un corte puede corromper + menos desgaste.
+4. **Reloj estable** (sincronización horaria que ya no depende de sí misma) → la evidencia forense queda con hora fiable.
+5. **Espacio de disco corregido:** un error de aprovisionamiento dejaba a las unidades nuevas usando **9 GB de 29 GB**
+   (se habrían llenado en semanas); corregido en la unidad viva y en el script de fábrica.
+
+**Sigue siendo indispensable el hardware (recomendación #1 de §6):** **fuente de calidad 5 V ≥3 A** + protección contra
+picos al volver la luz. El software alarga la vida y evita que un corte se vuelva permanente, pero **no sustituye** una
+fuente decente.
+
+**Pendiente evaluado (fase v2):** raíz de solo-lectura (*overlay*) — es el blindaje definitivo contra cortes de energía
+en casas con luz inestable, pero es un cambio mayor y se planifica aparte para no arriesgar la unidad viva.
+
+---
+
 *Este documento se actualizará en cuanto el registrador de vuelo capture el primer fallo y permita confirmar la causa raíz.*

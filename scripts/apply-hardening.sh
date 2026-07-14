@@ -89,8 +89,56 @@ if [ -f "$CRON_ARM" ] && grep -qE '^[[:space:]]*[^#].*armbian-apt-updates' "$CRO
 fi
 log "apt automatico nocturno deshabilitado (timers enmascarados + cron neutralizado)"
 
+# 9) CPU: governor conservative + techo de frecuencia (LONGEVIDAD del hardware).
+#    ondemand salta a 1.8 GHz de golpe -> pico de corriente que degrada/mata fuentes
+#    marginales (gatillo #1 de los apagones). conservative sube gradual y 1.416 GHz
+#    recorta pico y calor sin impacto (workload de red usa <1.0 de carga).
+install -D -m644 "$DIR/deploy/cpufreq/cpufrequtils" /etc/default/cpufrequtils
+install -D -m644 "$DIR/systemd/safelock-cpufreq.service" /etc/systemd/system/safelock-cpufreq.service
+systemctl enable safelock-cpufreq.service >/dev/null 2>&1 || true
+for p in /sys/devices/system/cpu/cpufreq/policy*; do   # aplicar en vivo, sin reiniciar
+    [ -w "$p/scaling_governor" ] && echo conservative > "$p/scaling_governor" 2>/dev/null || true
+    [ -w "$p/scaling_max_freq" ] && echo 1416000 > "$p/scaling_max_freq" 2>/dev/null || true
+done
+log "cpu governor=conservative max=1.416GHz"
+
+# 10) Apagar radios (BT/WiFi) y servicios inutiles: menos consumo, calor y superficie.
+install -D -m644 "$DIR/deploy/modprobe/safelock-no-radios.conf" /etc/modprobe.d/safelock-no-radios.conf
+systemctl disable --now wpa_supplicant.service >/dev/null 2>&1 || true
+systemctl mask bluetooth.service >/dev/null 2>&1 || true
+modprobe -r hci_uart btbcm btintel btqca btrtl bluetooth >/dev/null 2>&1 || true  # si en uso, el blacklist actua al reiniciar
+log "radios BT/WiFi desactivadas (blacklist + wpa_supplicant off + bluetooth masked)"
+
+# 11) Reducir escrituras a eMMC: p0f deja de inundar el journal (~4800 lineas/h; la
+#     evidencia queda en /var/log/p0f.log) y el journal persistente se acota.
+install -D -m644 "$DIR/deploy/p0f/10-safelock-quiet.conf" /etc/systemd/system/p0f.service.d/10-safelock-quiet.conf
+install -D -m644 "$DIR/deploy/journald/safelock.conf" /etc/systemd/journald.conf.d/safelock.conf
+log "p0f silenciado + journald acotado"
+
+# 12) Logs de Docker acotados. daemon.json = default para contenedores NUEVOS (clones
+#     recien provisionados); logrotate = acota los json-file YA existentes (contenedores
+#     horneados en la imagen, que el clon no recrea) sin reiniciar Docker (copytruncate).
+#     NO se reinicia Docker aqui a proposito (evita cortar el DNS en una corrida OTA
+#     desatendida); daemon.json toma efecto al proximo reinicio natural.
+if [ ! -f /etc/docker/daemon.json ]; then
+    install -D -m644 "$DIR/deploy/docker/daemon.json" /etc/docker/daemon.json
+elif ! cmp -s "$DIR/deploy/docker/daemon.json" /etc/docker/daemon.json; then
+    cp -f /etc/docker/daemon.json /etc/docker/daemon.json.safelock.bak
+    install -D -m644 "$DIR/deploy/docker/daemon.json" /etc/docker/daemon.json
+fi
+install -D -m644 "$DIR/deploy/logrotate/safelock-docker" /etc/logrotate.d/safelock-docker
+log "logs de Docker acotados (daemon.json + logrotate)"
+
+# 13) Reloj estable: timesyncd con IPs NTP anycast (no depende del DNS local = pihole).
+install -D -m644 "$DIR/deploy/timesyncd/safelock.conf" /etc/systemd/timesyncd.conf.d/safelock.conf
+systemctl restart systemd-timesyncd >/dev/null 2>&1 || true
+log "timesyncd con NTP numerico (sin dependencia del DNS local)"
+
 systemctl daemon-reload
 systemctl enable --now safelock-flight-recorder.timer >/dev/null 2>&1 || true
+systemctl enable safelock-cpufreq.service >/dev/null 2>&1 || true
+systemctl restart p0f >/dev/null 2>&1 || true               # aplica StandardOutput=null
+systemctl restart systemd-journald >/dev/null 2>&1 || true  # aplica el techo del journal
 systemctl daemon-reexec   # arma el watchdog sin reiniciar
 
 log "endurecimiento completado"

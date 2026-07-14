@@ -47,11 +47,14 @@ fi
 
 JSON_PAYLOAD="{\"device_id\":\"$DEVICE_ID\",\"pihole_active\":$PIHOLE_ACTIVE,\"tailscale_ip\":\"$TAILSCALE_IP\",\"version\":\"1.3.1\",\"critical_alert\":$CRITICAL_ALERT}"
 
+# curl ya emite "000" en %{http_code} si no hay respuesta; el viejo `|| echo 000`
+# concatenaba y producia "000000" en el log. El :-000 cubre curl ausente.
 HTTP_CODE="$(curl -sS -o /tmp/heartbeat.out -w '%{http_code}' \
   -X POST "$API_URL" \
   -H "Content-Type: application/json" \
   -H "x-api-secret: $API_SECRET" \
-  -d "$JSON_PAYLOAD" || echo 000)"
+  -d "$JSON_PAYLOAD")"
+HTTP_CODE="${HTTP_CODE:-000}"
 
 if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "204" ]; then
   log "OK code=$HTTP_CODE payload=$JSON_PAYLOAD"

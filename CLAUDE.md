@@ -4,7 +4,7 @@
 > Es un **dispositivo de producción en crisis**, no un proyecto de juguete. Hay acciones que pueden **bricklear
 > unidades en remoto sin posibilidad de recuperación**. Lee la sección "⚠️ REGLAS CRÍTICAS" antes de actuar.
 >
-> Fecha de última actualización: **2026-06-19**. Mantén este archivo al día al final de cada sesión.
+> Fecha de última actualización: **2026-07-14**. Mantén este archivo al día al final de cada sesión.
 
 ---
 
@@ -73,6 +73,36 @@ Todo el trabajo está en la rama, **NUNCA se ha tocado `master`** (para no despl
   enfoque blameless).
 - **La referencia fue reiniciada 2026-06-19 y `fsck.repair` quedó CONFIRMADO activo** en `/proc/cmdline`. eMMC sana,
   FS clean, todos los servicios arriba.
+
+### 4.1 Longevidad del hardware + limpieza (2026-07-14, misma rama `audit/phase1-hardening`)
+**Contexto:** la **unidad maestra/golden murió sin encender (ningún LED)** tras idas de luz → falla de **alimentación
+(hardware)**; el dueño lo acepta. La orden fue **exprimir el software para que las cajas duren lo más posible**. Un clon
+vivo (`safelock-7a813b145d15`, esta referencia) **sobrevivió 2 cortes sucios** (9 y 14 jul) → el anti-brick funciona.
+Todo lo nuevo entra en `scripts/apply-hardening.sh` (pasos **9–13**, idempotentes, mismo estilo) + `deploy/`:
+- **CPU (palanca #1):** governor `conservative` + techo `1416000` (`deploy/cpufreq/cpufrequtils` +
+  `systemd/safelock-cpufreq.service`, enabled). Recorta el **pico de corriente** que mata fuentes marginales y el calor;
+  sin impacto (workload de red usa <1.0 de carga). Aplicado en vivo y al boot.
+- **Radios off:** blacklist BT/WiFi (`deploy/modprobe/safelock-no-radios.conf`) + `wpa_supplicant` **disabled** +
+  `bluetooth` **masked**. (WiFi ya no cargaba; BT venía por UART.)
+- **Menos escritura a eMMC:** p0f `StandardOutput=null` (`deploy/p0f/10-safelock-quiet.conf`, cortó ~4.800 líneas/h al
+  journal; evidencia sigue en `/var/log/p0f.log`), journald acotado (`deploy/journald/safelock.conf`), logs Docker
+  acotados con `deploy/docker/daemon.json` (default para contenedores **nuevos**) + **logrotate copytruncate**
+  (`deploy/logrotate/safelock-docker`, acota los **ya existentes** sin recrear contenedores) + `logging:` en
+  `netalertx/docker-compose.yml`. **apply-hardening NO reinicia Docker** a propósito (evita cortar DNS en OTA desatendido;
+  `daemon.json` toma efecto al próximo reinicio natural).
+- **Reloj:** `timesyncd` con **IPs NTP anycast numéricas** (`deploy/timesyncd/safelock.conf`) → no depende del DNS local
+  (= pihole); por esa dependencia circular perdía sync a las ~9 h. `NTPSynchronized=yes` confirmado.
+- **Disco (bug de fábrica):** `install/golden-firstboot.sh` — `parted` salía con código **!=0** por el warning de "GPT
+  backup no al final" **aunque SÍ redimensionaba**, y el script se rendía → el FS quedaba a **9 GB en partición de 29 GB**
+  (se habría llenado en semanas). Corregido: no condiciona al exit code, arregla el GPT (`parted -f print`), corre
+  `resize2fs` siempre, y loguea el error real. **Este clon expandido a 29 GB a mano** (`resize2fs`, ya al 26 %).
+- **heartbeat.sh:** quitado el `|| echo 000` que producía `code=000000` en fallo de red (cosmético).
+- **v2 (documentado, NO hecho):** **overlayroot** (raíz de solo-lectura) = blindaje definitivo anti-corte de luz; cambio
+  mayor y riesgoso en DTB custom → se planifica aparte para no arriesgar la unidad viva.
+- **OTA:** sigue **PAUSADO** (regla 2). Decisión de estado para producción pendiente del dueño; **no reactivar sin canario**.
+**Validado en la referencia:** idempotente (2 corridas idénticas), 4 contenedores healthy, heartbeat 200,
+`daemon.json` pasa `dockerd --validate`, p0f 0 líneas/h al journal, disco 29 G al 26 %, governor=conservative,
+0 módulos BT cargados. **Aún NO desplegado a la flota** (viaja por imagen golden / OTA cuando el dueño lo ordene).
 
 ## 5. ⚠️ REGLAS CRÍTICAS (leer antes de actuar)
 1. **NO mergear a `master` sin orden explícita y estrategia de canario.** `master` = lo que la flota tira por OTA. Un

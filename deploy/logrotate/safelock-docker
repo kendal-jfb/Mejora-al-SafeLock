@@ -1,0 +1,13 @@
+# SafeLock: acota los logs json-file de Docker que YA existen (incl. contenedores
+# horneados en la imagen golden, que no se recrean en el clon). daemon.json solo
+# aplica a contenedores nuevos; esto cubre a los existentes sin recrearlos.
+# copytruncate evita reiniciar contenedores; el driver json-file lo tolera.
+/var/lib/docker/containers/*/*-json.log {
+    weekly
+    rotate 3
+    size 10M
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
