@@ -28,6 +28,12 @@ Todo idempotente en `scripts/apply-hardening.sh` (pasos 1–14) + `deploy/`, ent
       `safelock-api`/`portal` activos, heartbeat 200, `governor=conservative`, disco 29 G, `NTPSynchronized=yes`,
       `systemctl is-active safelock-boot-sentinel` = active.
 - [ ] eMMC sana: `cat /sys/block/mmcblk1/device/life_time` (0x01 0x0x = 0–10 %).
+- [ ] **Modo del producto = BASE/normal:** `bash scripts/pihole_control.sh estado` → `inactivo`
+      (el API reporta `mode=free`, `premium_active=false`). Premium se vende activando pihole:
+      `bash scripts/pihole_control.sh activar`. La política del contenedor debe ser `unless-stopped`
+      (`docker inspect pihole --format '{{.HostConfig.RestartPolicy.Name}}'`) para que el modo persista
+      al reiniciar; `pihole_control.sh` la fija en cada acción. Las listas ya están horneadas en
+      `pihole/etc-pihole/` → al activar premium arranca listo, sin descargar nada.
 
 ## 2. Ramoops en un CANARIO (opcional pero recomendado — dump de pánico persistente)
 

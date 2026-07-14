@@ -125,6 +125,17 @@ resetea logs/telemetría/sentinela del master para que el clon empiece limpio. C
 **`docs/IMAGEN-GOLDEN-checklist.md`** (pre-captura, ramoops-canario, captura dd|gzip+PiShrink, validación de canario,
 decisión OTA). `apt clean` ya hecho en la referencia (liberó 258 MB).
 
+### 4.3 Modo del producto: base vs premium (2026-07-14)
+El API decide "premium" por si el **contenedor pihole está corriendo** (no hay flag de modo; `api/main.py`
+`build_customer_status` → `mode=premium_dns` si pihole activo, si no `free`). **premium = pihole activo; base/normal =
+pihole detenido.** Toggle: **`scripts/pihole_control.sh [activar|desactivar|estado]`**. **Bug corregido:** pihole traía
+`restart=always`, con el que un `docker stop` NO sobrevive a un reinicio (Docker lo relevanta) → el modo base no
+persistía. Ahora `pihole_control.sh` fija `--restart unless-stopped` en cada acción → el estado (corriendo/detenido)
+persiste across reboots para AMBOS modos. **La imagen/referencia se dejó en modo BASE** (pihole detenido, unless-stopped)
+para que las unidades salgan en normal; premium se activa por unidad con `pihole_control.sh activar` (listas ya horneadas
+en `pihole/etc-pihole/`). `prepare-golden` no arranca pihole; el DNS del equipo es 8.8.8.8/1.1.1.1 (no pihole) → apagarlo
+no afecta al appliance.
+
 ## 5. ⚠️ REGLAS CRÍTICAS (leer antes de actuar)
 1. **NO mergear a `master` sin orden explícita y estrategia de canario.** `master` = lo que la flota tira por OTA. Un
    merge despliega a cualquier unidad ONLINE en ≤30 min. Hoy hay 0 online, pero la regla se mantiene.
