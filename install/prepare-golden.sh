@@ -37,6 +37,11 @@ prepare)
     apt-get clean >/dev/null 2>&1 || true
 
     echo "[prepare-golden] deteniendo escritores para imagen consistente..."
+    # OTA PRIMERO: con el OTA activo, su health-check exige safelock-api activo; si lo
+    # paramos antes de frenar el timer, el ciclo de 30 min lo marca "no sano" y
+    # rollback.sh lo reinicia solo -> el quiesce se deshace a mitad de captura (bug
+    # real observado 2026-07-15). Frenar el timer ANTES evita la carrera.
+    systemctl stop safelock-update.timer 2>/dev/null || true
     systemctl stop safelock-flight-recorder.timer safelock-heartbeat.timer \
                    safelock-pack-scheduler.timer connectivity-watchdog.timer 2>/dev/null || true
     systemctl stop safelock-api safelock-portal 2>/dev/null || true
@@ -62,6 +67,10 @@ restore)
     systemctl start safelock-api safelock-portal 2>/dev/null || true
     systemctl start safelock-flight-recorder.timer safelock-heartbeat.timer \
                     safelock-pack-scheduler.timer connectivity-watchdog.timer 2>/dev/null || true
+    # Reactivar el OTA solo si esta unidad lo tenia habilitado (no forzarlo en unidades
+    # donde el OTA sigue pausado a proposito).
+    systemctl is-enabled --quiet safelock-update.timer 2>/dev/null && \
+        systemctl start safelock-update.timer 2>/dev/null || true
     echo "[prepare-golden] servicios revividos. (Si prefieres, un reinicio limpio también sirve.)"
     ;;
 *)
