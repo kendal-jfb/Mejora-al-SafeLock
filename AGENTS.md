@@ -136,6 +136,23 @@ para que las unidades salgan en normal; premium se activa por unidad con `pihole
 en `pihole/etc-pihole/`). `prepare-golden` no arranca pihole; el DNS del equipo es 8.8.8.8/1.1.1.1 (no pihole) → apagarlo
 no afecta al appliance.
 
+### 4.4 OTA REACTIVADO + merge a master (2026-07-14, por orden explícita del dueño)
+**CAMBIO DE ESTADO — anula parcialmente las reglas 1 y 2 de abajo:** por orden explícita se **mergeó todo el trabajo a
+`master`** (fast-forward + merge de reconciliación, commit `7f5a09a`) y se **REACTIVÓ el OTA**. `master` = `audit/phase1-hardening`
+= `7f5a09a` (hardening completo + modo base + QR safelock.local + **fix de resize sfdisk `0564f41`**).
+- **OTA activo:** `safelock-update.timer` **enabled/active** (cada 30 min: `OnBootSec=5min`, `OnUnitActiveSec=30min`).
+  Validado en este clon: git no-op (master==origin/master), `Health check OK`, `hardening.done` ya coincide → ciclos no-op
+  limpios. El **cron de las 3am se dejó DESACTIVADO a propósito** (reintroduce la ventana nocturna que neutralizamos + es
+  redundante con el timer). Reactivar solo si se quiere: descomentar en crontab.
+- **Esta unidad quedó en la rama `master`** (no en audit) → el `git reset --hard origin/master` del OTA es limpio.
+- ⚠️ **CON OTA ACTIVO, cualquier cambio local sin commitear se borra en ≤30 min** (git reset --hard). Commitear+pushear siempre.
+- **ALCANCE = solo runtime de esta unidad.** El estado del timer NO está en git; la flota recibe OTA **por la imagen golden**.
+  La imagen actual la hornea PAUSADO. Para que los clones auto-actualicen hay que (a) re-capturar imagen con OTA enabled, o
+  (b) que `apply-hardening`/firstboot lo habiliten. **PENDIENTE de decisión del dueño.**
+- **TRABAJO EN PARALELO detectado (repo compartido):** otra sesión probó el canario `f2ebc8e96887` y creó `0564f41`
+  (resize sfdisk; su mensaje dice **RE-CAPTURAR imagen**). Ramas sin mergear en origin: `copilot/update-logo-color-scheme`,
+  `feature/premium-pack-schedules`. El OTA entrega SOLO master → esas ramas NO se despliegan hasta mergearse.
+
 ## 5. ⚠️ REGLAS CRÍTICAS (leer antes de actuar)
 1. **NO mergear a `master` sin orden explícita y estrategia de canario.** `master` = lo que la flota tira por OTA. Un
    merge despliega a cualquier unidad ONLINE en ≤30 min. Hoy hay 0 online, pero la regla se mantiene.
