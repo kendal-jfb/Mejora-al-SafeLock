@@ -4,7 +4,9 @@
 > Es un **dispositivo de producción en crisis**, no un proyecto de juguete. Hay acciones que pueden **bricklear
 > unidades en remoto sin posibilidad de recuperación**. Lee la sección "⚠️ REGLAS CRÍTICAS" antes de actuar.
 >
-> Fecha de última actualización: **2026-07-14**. Mantén este archivo al día al final de cada sesión.
+> Fecha de última actualización: **2026-07-15**. Mantén este archivo al día al final de cada sesión.
+> **Handoff de agente (2026-07-15): la sesión de Claude se quedó sin uso a mitad de la captura de imagen.
+> Retomando con OPENCODE u otro agente — lee §4.5 PRIMERO, tiene el estado exacto en que quedó la unidad.**
 
 ---
 
@@ -152,6 +154,50 @@ no afecta al appliance.
 - **TRABAJO EN PARALELO detectado (repo compartido):** otra sesión probó el canario `f2ebc8e96887` y creó `0564f41`
   (resize sfdisk; su mensaje dice **RE-CAPTURAR imagen**). Ramas sin mergear en origin: `copilot/update-logo-color-scheme`,
   `feature/premium-pack-schedules`. El OTA entrega SOLO master → esas ramas NO se despliegan hasta mergearse.
+
+### 4.5 ⏸️ EN CURSO: captura de imagen golden nueva (2026-07-15) — LEER ANTES DE TOCAR NADA
+**Esta unidad (`safelock-123cf316d25e`, Tailscale `100.86.9.91`) ES el equipo donde se está capturando la imagen.**
+OJO: es un **clon** de la unidad de referencia original (`safelock-7a813b145d15` de las secciones §1-4.4), re-personalizado
+y re-horneado como el nuevo master (`golden-master-id=123cf316d25e`) tras validarse como canario del fix de resize. A
+partir de aquí, ESTA es la unidad de referencia viva.
+
+**⚠️ ESTADO ACTUAL DEL DISPOSITIVO — probablemente sigue así, VERIFICAR primero:**
+```bash
+systemctl is-active safelock-api safelock-portal safelock-update.timer   # esperar: inactive inactive inactive
+docker ps -a --format '{{.Names}}: {{.Status}}'                          # esperar: netalertx/apprise/opencanary Paused, pihole Exited
+```
+Si da eso → la unidad está **"preparada para captura"** (`install/prepare-golden.sh prepare` ya corrió, commit `93808cf`
+en `master`, árbol limpio). El dueño recibió este comando para jalar la imagen desde su Windows (WSL2/Mac, NO PowerShell):
+```bash
+ssh root@100.86.9.91 "dd if=/dev/mmcblk1 bs=4M status=progress | gzip -1" > safelock_master.img.gz
+```
+**NO SÉ SI YA TERMINÓ DE JALARLA.** Pregúntale al dueño. Si dice que sí (o si el archivo ya existe en su Windows y tiene
+buen tamaño, ~7-8 GB comprimido con gzip -1):
+```bash
+sudo bash /root/safeLock_SoC/install/prepare-golden.sh restore   # revive api/portal/timers/docker + reactiva el OTA
+```
+Si dice que no ha empezado o no está seguro, **espera su confirmación antes de restaurar** (restaurar mientras el `dd`
+está corriendo no corrompe el copy en curso —dd ya leyó los bloques que ya leyó— pero mejor confirmar).
+
+**Bug encontrado y corregido en esta sesión (commit `93808cf`, ya en `master` y `audit/phase1-hardening`, pusheado):**
+con el OTA activo (ver §4.4), el primer intento de `prepare-golden.sh prepare` (23:32) quedó **saboteado por el propio
+OTA**: el timer siguió corriendo cada 30 min, su `health-check.sh` exige `safelock-api` activo, lo vio detenido (por el
+quiesce) y a los 5 min `rollback.sh` lo reinició solo → el quiesce se deshizo a mitad de la ventana de captura. Riesgo
+real (no solo teórico): (a) pudo quedar `/var/lib/safelock/bad_commit` grabado en la imagen → **OTA muerto en silencio
+en TODA la flota clonada** (el check `REMOTE == bad_commit` se cumple para siempre si master no avanza); (b) `dd` es una
+copia de bloques en caliente, así que servicios reescribiendo logs/PIDs a mitad de la ventana "ya sincronizada" arriesgan
+una imagen menos limpia. **Fix:** `prepare-golden.sh` ahora para `safelock-update.timer` ANTES de parar api/portal (sin
+la carrera); `restore` lo reactiva solo si ya estaba `enabled`. Se re-ejecutó `prepare` limpio a las 00:44 — **por eso el
+estado actual debería ser el "preparado" de arriba**, ya sin el bug.
+
+**Qué falta tras confirmar la captura:** `restore` (arriba) → PiShrink en Windows/WSL (`pishrink.sh -s -z`) → validar
+1 canario nuevo con `docs/IMAGEN-GOLDEN-checklist.md` §4 (esta imagen ya trae: hardening completo, modo base, QR
+`safelock.local`, fix de resize `sfdisk`, **y OTA activo de fábrica** — ver §4.4, es distinto a imágenes previas).
+
+**Contexto no resuelto que sigue pendiente (de §4.4, sigue igual):** repo compartido con otra sesión/agente; ramas
+`copilot/update-logo-color-scheme` y `feature/premium-pack-schedules` sin mergear a master (el OTA no las entrega hasta
+que se mergeen). Hardware (fuente 5V≥3A + protector de picos) sigue sin resolver — es la causa raíz real de los apagones,
+ningún fix de software la reemplaza.
 
 ## 5. ⚠️ REGLAS CRÍTICAS (leer antes de actuar)
 1. **NO mergear a `master` sin orden explícita y estrategia de canario.** `master` = lo que la flota tira por OTA. Un
