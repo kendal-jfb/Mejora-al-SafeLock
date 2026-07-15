@@ -29,27 +29,34 @@ BAKED=$(cat "$MARKER" 2>/dev/null || echo "")
 log "CLON detectado (MAC $HW, horneado $BAKED). Re-personalizando..."
 mkdir -p "$RS"
 
-# ---------- 0) Expandir el disco (imagen ENCOGIDA por pishrink) — 2 fases, con timeout ----------
+# ---------- 0) Expandir el disco (imagen ENCOGIDA por pishrink) — ONLINE, sin reboot ----------
+# BUG HISTÓRICO (probado en el 1er canario 2026-07-14): 'parted resizepart' NO puede
+# redimensionar la raíz MONTADA. En modo script (-s) responde "No" al prompt "Partition
+# is being used. Are you sure?" y NUNCA reescribe la tabla -> el clon quedaba a 9 GB en un
+# disco de 29 GB. (No se detectó antes porque en el master la partición ya era de 29 GB.)
+# Método correcto y ONLINE: sfdisk crece la ENTRADA de la partición sin re-leer la tabla,
+# 'partx -u' actualiza la vista del kernel EN CALIENTE (partición montada) y resize2fs
+# crece el FS montado. Un solo paso, sin reboot. Idempotente (repetirlo es no-op).
 DISK=/dev/mmcblk1; ROOTDEV=/dev/mmcblk1p1
 if [ ! -f "$RS/resize.done" ]; then
-    if [ ! -f "$RS/resize.part" ]; then
-        log "expandiendo partición al 100% del disco..."
-        # OJO (bug corregido): parted sale con código !=0 por el warning de "GPT backup
-        # no está al final del disco" (pishrink deja el header viejo) AUNQUE SÍ redimensione.
-        # El script viejo condicionaba al exit code -> se rendía y NUNCA corría resize2fs
-        # -> el clon quedaba con el FS a 9 GB dentro de una partición de 29 GB. Ahora:
-        #  a) 'parted -f print' mueve/arregla el GPT backup al final (limpia el warning),
-        #  b) resizepart sin gate por exit code, y c) la salida va al log (no se oculta).
-        timeout 30 parted -s -f "$DISK" print              >>"$RS/firstboot.log" 2>&1 || true
-        timeout 60 parted -s -f "$DISK" resizepart 1 100%  >>"$RS/firstboot.log" 2>&1 || true
-        touch "$RS/resize.part"
-        log "partición procesada; reinicio para que el kernel relea la tabla..."
-        safe_reboot
+    log "expandiendo disco al 100% (sfdisk + partx + resize2fs, online)..."
+    if command -v sfdisk >/dev/null 2>&1 && command -v partx >/dev/null 2>&1; then
+        # ', +' = mantener el inicio, crecer la partición 1 hasta el final del disco.
+        echo ', +' | timeout 60 sfdisk --no-reread --no-tell-kernel -N 1 "$DISK" >>"$RS/firstboot.log" 2>&1 \
+            || log "WARN: sfdisk falló al crecer la partición"
+        timeout 30 partx -u "$DISK" >>"$RS/firstboot.log" 2>&1 || log "WARN: partx -u falló"
     else
-        log "creciendo filesystem (resize2fs) para llenar la partición..."
-        # Idempotente: si el FS ya llena la partición, es no-op; si no, la crece.
-        timeout 300 resize2fs "$ROOTDEV" >>"$RS/firstboot.log" 2>&1 || log "WARN: resize2fs falló"
-        touch "$RS/resize.done"; rm -f "$RS/resize.part"
+        # Fallback si faltara util-linux: parted forzando respuestas al prompt interactivo.
+        log "WARN: sfdisk/partx ausentes; fallback a parted ---pretend-input-tty"
+        printf 'Fix\nYes\n' | timeout 60 parted ---pretend-input-tty "$DISK" resizepart 1 100% >>"$RS/firstboot.log" 2>&1 || true
+        timeout 30 partprobe "$DISK" >>"$RS/firstboot.log" 2>&1 || true
+    fi
+    if timeout 300 resize2fs "$ROOTDEV" >>"$RS/firstboot.log" 2>&1; then
+        touch "$RS/resize.done"
+        log "disco expandido OK ($(df -h / | awk 'NR==2{print $2" total, "$5" usado"}'))"
+    else
+        # NO marcar done -> reintenta en el próximo arranque (sfdisk/resize2fs son idempotentes).
+        log "WARN: resize2fs falló; se reintentará en el próximo arranque"
     fi
 fi
 
