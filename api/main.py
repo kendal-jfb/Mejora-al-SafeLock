@@ -180,7 +180,7 @@ def get_system_info():
         "local_ip": ip_addr,
         "portal_url": f"http://{ip_addr}:5173",
         # Direccion estable por mDNS (no cambia aunque cambie la IP/red del cliente).
-        "portal_url_mdns": f"http://{hostname}.local:5173",
+        "portal_url_mdns": "http://safelock.local:5173",
         "primary_interface": interface or "—",
         "mac_address": get_mac_addr(interface),
         "hardware": "SafeLock V2",
@@ -412,7 +412,7 @@ def get_system_info_endpoint():
 @app.get("/qr")
 def get_qr():
     info = get_system_info()
-    url = info["portal_url"]
+    url = info["portal_url_mdns"]
     img = qrcode.make(url)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
