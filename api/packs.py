@@ -6,8 +6,22 @@ import subprocess
 import tempfile
 from datetime import datetime
 
-CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
-PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+# Los datos (bind mounts de docker) siguen donde los dejo el aprovisionamiento;
+# el codigo se mueve entre releases, los datos no.
+DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "/root/safeLock_SoC")
+
+# La configuracion del cliente debe sobrevivir a las actualizaciones, asi que
+# tras migrar vive fuera del arbol de releases. Mientras no exista la ruta
+# nueva se sigue usando la vieja, para no perder la config de los equipos
+# que aun no han migrado.
+LEGACY_CONFIG_FILE = f"{DATA_DIR}/api/config.json"
+CONFIG_FILE = os.environ.get("SAFELOCK_CONFIG", "")
+if not CONFIG_FILE:
+    CONFIG_FILE = ("/etc/safelock/config.json"
+                   if os.path.exists("/etc/safelock/config.json")
+                   else LEGACY_CONFIG_FILE)
+
+PIHOLE_GRAVITY_DB = f"{DATA_DIR}/pihole/etc-pihole/gravity.db"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ALLOWED_FREQUENCIES = {"diario", "semanal", "quincenal", "mensual"}
 DEFAULT_USER_CONFIG = {

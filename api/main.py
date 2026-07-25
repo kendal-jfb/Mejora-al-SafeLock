@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from packs import (
     ALLOWED_FREQUENCIES,
+    CONFIG_FILE,
     get_public_config,
     get_pack_schedules_with_state,
     get_pack_states,
@@ -28,31 +29,59 @@ from packs import (
     set_pack_enabled,
 )
 
-app = FastAPI(title="SafeLock API", version="1.2.0")
 
+def _leer_version():
+    """La version real la pone el release; fuera de un release, desconocida."""
+    ruta = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+    try:
+        with open(ruta, "r") as f:
+            return f.read().strip() or "dev"
+    except OSError:
+        return "dev"
+
+
+APP_VERSION = _leer_version()
+
+app = FastAPI(title="SafeLock API", version=APP_VERSION)
+
+# El portal se sirve desde la LAN del cliente; no hay motivo para aceptar
+# origenes de internet contra una API sin autenticacion.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|"
+                       r"192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- RUTAS DE ARCHIVOS ---
-NETALERTX_DB = "/root/safeLock_SoC/netalertx/data/db/app.db"
-OPENCANARY_LOG = "/root/safeLock_SoC/netalertx/data/opencanary/opencanary.log"
+# Los datos (bind mounts de docker, bases de netalertx/pihole) siguen viviendo
+# donde los dejo el aprovisionamiento de fabrica. El codigo se mueve entre
+# releases, los datos no.
+DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "/root/safeLock_SoC")
+
+NETALERTX_DB = f"{DATA_DIR}/netalertx/data/db/app.db"
+OPENCANARY_LOG = f"{DATA_DIR}/netalertx/data/opencanary/opencanary.log"
 P0F_LOG = "/var/log/p0f.log"
 PASSIVEDNS_LOG = "/var/log/passivedns.log"
-CONFIG_FILE = "/root/safeLock_SoC/api/config.json"
-PIHOLE_DB = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
-PIHOLE_GRAVITY_DB = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+PIHOLE_DB = f"{DATA_DIR}/pihole/etc-pihole/pihole-FTL.db"
+PIHOLE_GRAVITY_DB = f"{DATA_DIR}/pihole/etc-pihole/gravity.db"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 INTERNAL_STATUS_TOKEN = os.getenv("SAFELOCK_INTERNAL_TOKEN", "")
 
 # --- CONFIGURACIÓN SMTP ---
-SMTP_SERVER  = "bh8912.banahosting.com"
-SMTP_PORT    = 465
-SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
-SENDER_PASS  = "Hy7Vhj%WssN7Uy"
+# Las credenciales llegan por EnvironmentFile=/etc/safelock/env, que el agente
+# OTA baja del backend. Si no estan, el envio de correo queda desactivado: la
+# API tiene que arrancar igual, porque de ella depende el health check que
+# decide si una actualizacion se confirma o se revierte.
+SMTP_SERVER  = os.environ.get("SMTP_SERVER", "")
+SMTP_PORT    = int(os.environ.get("SMTP_PORT", "587") or 587)
+SENDER_EMAIL = os.environ.get("SMTP_SENDER", "")
+SENDER_PASS  = os.environ.get("SMTP_PASSWORD", "")
+
+EMAIL_HABILITADO = bool(SMTP_SERVER and SENDER_EMAIL and SENDER_PASS)
+if not EMAIL_HABILITADO:
+    print("AVISO: SMTP sin configurar en /etc/safelock/env; alertas por correo desactivadas")
 
 # --- MODELOS DE DATOS ---
 class UserConfig(BaseModel):
@@ -223,6 +252,9 @@ _last_email_sent = None
 def send_email_alert(subject, recipient, ip, port, service):
     global _last_email_sent
     if not recipient: return
+    if not EMAIL_HABILITADO:
+        print("Alerta no enviada: SMTP sin configurar")
+        return
     now = datetime.now()
     if _last_email_sent and (now - _last_email_sent).seconds < 3600:
         print(f"Email cooldown activo — faltan {3600 - (now - _last_email_sent).seconds}s")
@@ -259,7 +291,7 @@ def send_email_alert(subject, recipient, ip, port, service):
 
 @app.get("/")
 def root():
-    return {"status": "SafeLock API operativa", "version": "1.2.0"}
+    return {"status": "SafeLock API operativa", "version": APP_VERSION}
 
 
 @app.get("/config")

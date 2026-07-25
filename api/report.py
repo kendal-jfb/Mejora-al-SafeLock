@@ -15,16 +15,37 @@ from email.mime.multipart import MIMEMultipart
 from packs import DEFAULT_USER_CONFIG, load_full_config
 
 # ── Configuración ──────────────────────────────────────────────────────────────
-SMTP_SERVER  = "bh8912.banahosting.com"
-SMTP_PORT    = 465
-SENDER_EMAIL = "safelock_user_data@openlocksecurity.com"
-SENDER_PASS  = "Hy7Vhj%WssN7Uy"
-CONFIG_FILE    = "/root/safeLock_SoC/api/config.json"
-NETALERTX_DB   = "/root/safeLock_SoC/netalertx/data/db/app.db"
-OPENCANARY_LOG = "/root/safeLock_SoC/netalertx/data/opencanary/opencanary.log"
-PIHOLE_DB      = "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db"
-GRAVITY_DB     = "/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
-LAST_REPORT_FILE = "/root/safeLock_SoC/api/last_report.json"
+# Credenciales desde /etc/safelock/env (cargado por el entorno de systemd o por
+# el propio cron). Nunca en el repositorio.
+def _cargar_env(ruta="/etc/safelock/env"):
+    try:
+        with open(ruta) as f:
+            for linea in f:
+                linea = linea.strip()
+                if not linea or linea.startswith("#") or "=" not in linea:
+                    continue
+                clave, _, valor = linea.partition("=")
+                os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+
+_cargar_env()
+
+SMTP_SERVER  = os.environ.get("SMTP_SERVER", "")
+SMTP_PORT    = int(os.environ.get("SMTP_PORT", "587") or 587)
+SENDER_EMAIL = os.environ.get("SMTP_SENDER", "")
+SENDER_PASS  = os.environ.get("SMTP_PASSWORD", "")
+EMAIL_HABILITADO = bool(SMTP_SERVER and SENDER_EMAIL and SENDER_PASS)
+
+DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "/root/safeLock_SoC")
+
+NETALERTX_DB   = f"{DATA_DIR}/netalertx/data/db/app.db"
+OPENCANARY_LOG = f"{DATA_DIR}/netalertx/data/opencanary/opencanary.log"
+PIHOLE_DB      = f"{DATA_DIR}/pihole/etc-pihole/pihole-FTL.db"
+GRAVITY_DB     = f"{DATA_DIR}/pihole/etc-pihole/gravity.db"
+# Fuera del arbol de releases: debe sobrevivir a las actualizaciones.
+LAST_REPORT_FILE = os.environ.get("SAFELOCK_LAST_REPORT", "/var/lib/safelock/last_report.json")
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def get_config():
@@ -66,6 +87,7 @@ def should_send_today(frequency):
         return True
 
 def save_last_report():
+    os.makedirs(os.path.dirname(LAST_REPORT_FILE), exist_ok=True)
     with open(LAST_REPORT_FILE, "w") as f:
         json.dump({"last_sent": datetime.now().isoformat()}, f)
 
@@ -237,6 +259,9 @@ def build_email(is_premium, frequency, total_devs, new_devs, honeypot_events,
 
 # ── Envío ──────────────────────────────────────────────────────────────────────
 def send_report(recipient, subject, html):
+    if not EMAIL_HABILITADO:
+        print("[AVISO] SMTP sin configurar en /etc/safelock/env; reporte no enviado")
+        return False
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
