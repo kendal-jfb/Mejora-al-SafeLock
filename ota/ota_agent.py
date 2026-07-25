@@ -157,14 +157,32 @@ def save_state(state):
         log(f"no se pudo guardar el estado: {exc}")
 
 
-def device_id():
-    ident = read_file(DEVICE_ID_FILE)
-    if ident:
-        return ident
-    # Respaldo con el mismo formato que usa install/factory_setup.sh.
+def canonical_device_id():
+    """El id que le corresponde a este hardware, segun la MAC de end0."""
     mac = read_file("/sys/class/net/end0/address")
     if mac:
         return "safelock-" + mac.replace(":", "")
+    return None
+
+
+def device_id():
+    ident = read_file(DEVICE_ID_FILE)
+    canonical = canonical_device_id()
+    if canonical and ident != canonical:
+        # /etc/safelock-id puede venir arrastrado sin corregir desde una imagen
+        # golden (golden-firstboot.sh no lo tocaba en clones, y migrate-to-ota.sh
+        # solo lo rellenaba si estaba vacio). Sin esto, el equipo reporta al
+        # backend con la identidad de otra maquina.
+        log(f"device_id desincronizado ({ident or 'vacio'} != {canonical}); autocorrigiendo")
+        try:
+            write_atomic(DEVICE_ID_FILE, canonical + "\n")
+        except Exception as exc:
+            log(f"no se pudo corregir {DEVICE_ID_FILE}: {exc}")
+        return canonical
+    if ident:
+        return ident
+    if canonical:
+        return canonical
     return "safelock-" + os.uname()[1]
 
 

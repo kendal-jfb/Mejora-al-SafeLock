@@ -78,6 +78,12 @@ else
     printf '127.0.1.1\t%s\n' "$NEWHOST" >> /etc/hosts
 fi
 
+# ---------- 3b) identidad OTA: /etc/safelock-id debe ser LA DE ESTE CLON ----------
+# El agente OTA v2 (ota/ota_agent.py) reporta al backend con lo que haya aqui.
+# Sin esto, un clon hereda el id horneado en la imagen y suplanta a otra maquina.
+echo "$NEWHOST" > /etc/safelock-id
+chmod 644 /etc/safelock-id
+
 # ---------- 4) Tailscale: estado limpio (con timeout; NO lo arranco aquí, lo hace el reboot) ----------
 timeout 20 systemctl stop tailscaled >/dev/null 2>&1 || true
 rm -rf /var/lib/tailscale/* 2>/dev/null || true
