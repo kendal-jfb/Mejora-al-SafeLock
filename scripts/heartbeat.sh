@@ -45,7 +45,17 @@ if ! systemctl is-active --quiet safelock-api; then
   CRITICAL_ALERT=true
 fi
 
-JSON_PAYLOAD="{\"device_id\":\"$DEVICE_ID\",\"pihole_active\":$PIHOLE_ACTIVE,\"tailscale_ip\":\"$TAILSCALE_IP\",\"version\":\"1.3.1\",\"critical_alert\":$CRITICAL_ALERT}"
+# Estado de la migracion a OTA v2, para poder seguirla desde el dashboard
+# mientras la flota todavia reporta por este canal antiguo.
+if [ -f /var/lib/safelock/ota/migrated ]; then
+  MIGRATION_STATE="done"
+elif [ -f /var/lib/safelock/ota/migrate_attempts ]; then
+  MIGRATION_STATE="attempts:$(cat /var/lib/safelock/ota/migrate_attempts 2>/dev/null || echo '?')"
+else
+  MIGRATION_STATE="pending"
+fi
+
+JSON_PAYLOAD="{\"device_id\":\"$DEVICE_ID\",\"pihole_active\":$PIHOLE_ACTIVE,\"tailscale_ip\":\"$TAILSCALE_IP\",\"version\":\"1.3.1\",\"critical_alert\":$CRITICAL_ALERT,\"migration_state\":\"$MIGRATION_STATE\"}"
 
 # curl ya emite "000" en %{http_code} si no hay respuesta; el viejo `|| echo 000`
 # concatenaba y producia "000000" en el log. El :-000 cubre curl ausente.

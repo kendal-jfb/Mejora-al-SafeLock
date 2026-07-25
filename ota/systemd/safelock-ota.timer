@@ -1,0 +1,12 @@
+[Unit]
+Description=Run SafeLock OTA agent periodically
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+# Reparte la carga de la flota sobre el backend y GitHub.
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

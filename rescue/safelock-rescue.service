@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock rescue check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/safelock/rescue/rescue.sh
+TimeoutStartSec=900

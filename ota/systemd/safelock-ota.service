@@ -1,0 +1,9 @@
+[Unit]
+Description=SafeLock OTA agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/safelock/agent/run-agent.sh
+TimeoutStartSec=1800

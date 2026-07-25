@@ -1,0 +1,13 @@
+[Unit]
+Description=SafeLock portal (estatico, sin node)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/safelock/current/scripts/serve-portal.py --dir /opt/safelock/current/portal_dist --port 5173
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

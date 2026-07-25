@@ -1,0 +1,15 @@
+[Unit]
+Description=SafeLock local API
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/safelock/current/api
+EnvironmentFile=-/etc/safelock/env
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8090
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

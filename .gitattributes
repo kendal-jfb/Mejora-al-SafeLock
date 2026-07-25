@@ -1,0 +1,17 @@
+# El repositorio se edita desde Windows y se ejecuta en Linux. Sin esto, un
+# script guardado con CRLF llega al dispositivo con \r y systemd falla con
+# "bad interpreter" o "command not found" en la primera linea.
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.py      text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
+*.yml     text eol=lf
+*.conf    text eol=lf
+
+*.png binary
+*.jpg binary
+*.gz  binary
+*.db  binary
+*.img binary

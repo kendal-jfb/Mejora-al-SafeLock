@@ -1,0 +1,175 @@
+name: Publicar release SafeLock
+
+# Publicar una version = crear un tag. Todo lo demas es automatico:
+#   git tag v2.1.0 && git push origin v2.1.0
+#
+# El release entra siempre por el canal canary. Pasarlo a toda la flota es un
+# boton en el dashboard (o POST /api/ota/promote), nunca algo que ocurra solo.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag a publicar (debe existir)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Determinar tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compilar el portal
+        working-directory: portal
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm run build
+
+      - name: Ensamblar el artefacto
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          STAGE=stage
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+
+          # Codigo de la API (telemetry.py legacy no se empaqueta: el heartbeat
+          # ahora lo emite el agente OTA, que es la unica fuente de version).
+          mkdir -p "$STAGE/api"
+          cp api/main.py api/report.py "$STAGE/api/"
+
+          # Portal ya compilado: el SoC no vuelve a ejecutar npm.
+          cp -r portal/dist "$STAGE/portal_dist"
+
+          # Scripts que el release necesita en runtime.
+          mkdir -p "$STAGE/scripts"
+          cp scripts/health-check.py scripts/serve-portal.py "$STAGE/scripts/"
+          cp scripts/pihole_control.sh scripts/setup_pihole_lists.sh \
+             scripts/update_network.sh "$STAGE/scripts/"
+
+          # Agente OTA y hooks opcionales del release.
+          mkdir -p "$STAGE/ota"
+          cp ota/ota_agent.py "$STAGE/ota/"
+          if [ -d ota/hooks ]; then cp -r ota/hooks "$STAGE/ota/hooks"; fi
+
+          # Unidades systemd que el agente instala en cada actualizacion.
+          # Las de rescate NO viajan aqui a proposito: se instalan una sola vez
+          # en la migracion y el canal normal nunca las toca.
+          cp -r ota/systemd "$STAGE/systemd"
+
+          echo "$TAG" > "$STAGE/VERSION"
+          echo "$COMMIT" > "$STAGE/COMMIT"
+
+          tar -czf "safelock-$TAG.tar.gz" -C "$STAGE" .
+          ls -la "safelock-$TAG.tar.gz"
+
+      - name: Manifest y firma
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          ARTIFACT="safelock-$TAG.tar.gz"
+          SHA=$(sha256sum "$ARTIFACT" | cut -d' ' -f1)
+          SIZE=$(stat -c %s "$ARTIFACT")
+
+          cat > manifest.json <<EOF
+          {
+            "schema": 1,
+            "tag": "$TAG",
+            "commit": "$COMMIT",
+            "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "artifact": {
+              "name": "$ARTIFACT",
+              "sha256": "$SHA",
+              "size": $SIZE
+            }
+          }
+          EOF
+
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::error::Falta el secret OTA_SIGNING_KEY; el dispositivo rechazaria este release"
+            exit 1
+          fi
+
+          umask 077
+          printf '%s' "$OTA_SIGNING_KEY" > signing-key.pem
+          openssl dgst -sha256 -sign signing-key.pem -out manifest.json.sig manifest.json
+          openssl dgst -sha256 -verify <(openssl rsa -in signing-key.pem -pubout) \
+            -signature manifest.json.sig manifest.json
+          shred -u signing-key.pem
+
+          cat manifest.json
+
+      - name: Publicar el release
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --title "SafeLock $TAG" \
+            --notes "Release automatico. Entra por canary; promover desde el dashboard." \
+            "safelock-$TAG.tar.gz" manifest.json manifest.json.sig \
+            || gh release upload "$TAG" \
+                 "safelock-$TAG.tar.gz" manifest.json manifest.json.sig --clobber
+
+      - name: Subir el artefacto al backend
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          OTA_ADMIN_TOKEN: ${{ secrets.OTA_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_URL:-}" ] || [ -z "${OTA_ADMIN_TOKEN:-}" ]; then
+            echo "::error::Sin BACKEND_URL/OTA_ADMIN_TOKEN no hay de donde descargar: el repo es privado"
+            exit 1
+          fi
+
+          # De aqui es de donde descargan los equipos. El release de GitHub
+          # queda como copia para humanos; los SoC no pueden leerlo.
+          for f in "safelock-$TAG.tar.gz" manifest.json manifest.json.sig; do
+            curl -fsS --retry 3 --retry-delay 5 -X PUT \
+              "$BACKEND_URL/api/ota/artifact/$TAG/$f" \
+              -H "x-admin-token: $OTA_ADMIN_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f"
+            echo "  subido $f"
+          done
+
+      - name: Registrar en el backend (canal canary)
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          OTA_ADMIN_TOKEN: ${{ secrets.OTA_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "$BACKEND_URL/api/ota/releases" \
+            -H "Content-Type: application/json" \
+            -H "x-admin-token: $OTA_ADMIN_TOKEN" \
+            -d "{\"tag\":\"$TAG\"}"
+          echo "Registrado $TAG en canary"

@@ -10,6 +10,19 @@ BACKUP_ROOT="/var/lib/safelock/update-backups"
 
 cd "$DIR"
 
+# --- Puente al sistema OTA v2 ----------------------------------------------
+# Se ejecuta antes que nada (incluso antes del git fetch) para que un repo
+# inaccesible no impida migrar. El script de migracion siempre termina en 0 y
+# solo crea el marcador si el sistema nuevo paso su health check; mientras no
+# exista, este updater sigue haciendo su trabajo con normalidad.
+if [ ! -f /var/lib/safelock/ota/migrated ]; then
+    bash "$DIR/scripts/migrate-to-ota.sh" >> "$LOG" 2>&1 || true
+    if [ -f /var/lib/safelock/ota/migrated ]; then
+        echo "[$DATE] Migrado a OTA v2; este updater queda fuera de servicio" >> "$LOG"
+        exit 0
+    fi
+fi
+
 PREV=$(git rev-parse HEAD)
 mkdir -p /var/lib/safelock
 echo "$PREV" > /var/lib/safelock/previous_commit
