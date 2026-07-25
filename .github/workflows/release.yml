@@ -58,8 +58,10 @@ jobs:
 
           # Codigo de la API (telemetry.py legacy no se empaqueta: el heartbeat
           # ahora lo emite el agente OTA, que es la unica fuente de version).
+          # packs.py es obligatorio: main.py y report.py hacen "from packs
+          # import ..." y sin el la API no arranca (bug detectado en v2.0.1).
           mkdir -p "$STAGE/api"
-          cp api/main.py api/report.py "$STAGE/api/"
+          cp api/main.py api/report.py api/packs.py "$STAGE/api/"
 
           # Portal ya compilado: el SoC no vuelve a ejecutar npm.
           cp -r portal/dist "$STAGE/portal_dist"

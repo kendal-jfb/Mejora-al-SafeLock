@@ -211,6 +211,22 @@ if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
 fi
 log "artefacto verificado"
 
+# --- 6b. Dependencias de Python de la API -----------------------------------
+# La unidad systemd del release usa /usr/bin/python3 (paquetes del sistema),
+# no una venv: la venv historica vive en $REPO_DIR/api/venv y esa ruta se
+# retira semanas despues de terminar la migracion, asi que nada permanente
+# puede depender de ella (bug real en v2.0.1: faltaban estos paquetes en el
+# sistema y la API no arrancaba).
+APT_PKGS="python3-fastapi python3-uvicorn python3-pydantic python3-qrcode python3-pil"
+if ! dpkg -s python3-fastapi >/dev/null 2>&1; then
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $APT_PKGS >>"$LOG" 2>&1; then
+    apt-get update >>"$LOG" 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $APT_PKGS >>"$LOG" 2>&1 \
+      || fallo "no se pudieron instalar los paquetes de Python de la API: $APT_PKGS"
+  fi
+fi
+log "dependencias de Python de la API listas (paquetes del sistema)"
+
 # --- 7. Instalar el arbol nuevo ---------------------------------------------
 mkdir -p "$OTA_ROOT/releases" "$OTA_ROOT/agent/lkg" "$OTA_ROOT/rescue"
 RELEASE_DIR="$OTA_ROOT/releases/$TAG"
