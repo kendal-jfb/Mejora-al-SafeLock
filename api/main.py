@@ -14,7 +14,8 @@ import smtplib
 import subprocess
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 from packs import (
@@ -44,12 +45,14 @@ APP_VERSION = _leer_version()
 
 app = FastAPI(title="SafeLock API", version=APP_VERSION)
 
-# El portal se sirve desde la LAN del cliente; no hay motivo para aceptar
-# origenes de internet contra una API sin autenticacion.
+# El portal se sirve desde la LAN del cliente o via Tailscale (acceso remoto
+# del dueño); no hay motivo para aceptar origenes de internet publico contra
+# una API sin autenticacion. 100.64.0.0/10 = CGNAT que usa Tailscale.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|"
-                       r"192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$",
+                       r"192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|"
+                       r"100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)(:\d+)?$",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -68,6 +71,28 @@ PIHOLE_DB = f"{DATA_DIR}/pihole/etc-pihole/pihole-FTL.db"
 PIHOLE_GRAVITY_DB = f"{DATA_DIR}/pihole/etc-pihole/gravity.db"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 INTERNAL_STATUS_TOKEN = os.getenv("SAFELOCK_INTERNAL_TOKEN", "")
+
+# netalertx guarda sus timestamps naive en su propio TIMEZONE (app.conf),
+# no en UTC. Los normalizamos a ISO 8601 con offset para que el navegador
+# los interprete igual sin importar en que zona horaria este el cliente.
+NETALERTX_TZ = ZoneInfo("America/Costa_Rica")
+NEW_DEVICE_WINDOW = timedelta(hours=1)
+
+
+def _parsear_hora_netalertx(valor: Optional[str]) -> Optional[datetime]:
+    if not valor:
+        return None
+    try:
+        return datetime.strptime(valor, "%Y-%m-%d %H:%M:%S").replace(tzinfo=NETALERTX_TZ)
+    except ValueError:
+        return None
+
+
+def _es_reciente(valor: Optional[str], ventana: timedelta = NEW_DEVICE_WINDOW) -> bool:
+    dt = _parsear_hora_netalertx(valor)
+    if dt is None:
+        return False
+    return datetime.now(NETALERTX_TZ) - dt < ventana
 
 # --- CONFIGURACIÓN SMTP ---
 # Las credenciales llegan por EnvironmentFile=/etc/safelock/env, que el agente
@@ -386,6 +411,12 @@ def get_devices():
         cursor = conn.execute("SELECT devMac, devName, devVendor, devLastIP, devPresentLastScan as devStatus, devFirstConnection, devLastConnection, devIsNew, devType FROM Devices WHERE devIsArchived = 0 ORDER BY devLastConnection DESC")
         devices = [dict(row) for row in cursor.fetchall()]
         conn.close()
+        for d in devices:
+            d["devIsNew"] = 1 if (d["devIsNew"] == 1 and _es_reciente(d["devFirstConnection"])) else 0
+            for campo in ("devFirstConnection", "devLastConnection"):
+                dt = _parsear_hora_netalertx(d[campo])
+                if dt is not None:
+                    d[campo] = dt.isoformat()
         return {"total": len(devices), "devices": devices}
     except Exception as e: return {"error": str(e), "devices": []}
 
@@ -420,7 +451,10 @@ def get_summary():
     try:
         conn = get_db()
         total_devices = conn.execute("SELECT COUNT(*) FROM Devices WHERE devIsArchived = 0").fetchone()[0]
-        new_devices = conn.execute("SELECT COUNT(*) FROM Devices WHERE devIsNew = 1 AND devIsArchived = 0").fetchone()[0]
+        nuevos_candidatos = conn.execute(
+            "SELECT devFirstConnection FROM Devices WHERE devIsNew = 1 AND devIsArchived = 0"
+        ).fetchall()
+        new_devices = sum(1 for row in nuevos_candidatos if _es_reciente(row["devFirstConnection"]))
         recent_events = conn.execute("SELECT COUNT(*) FROM Events WHERE eve_DateTime > datetime('now', '-24 hours')").fetchone()[0]
         conn.close()
         honeypot_data = get_honeypot_events(BackgroundTasks())
