@@ -1,0 +1,16 @@
+[Unit]
+Description=SafeLock bloquea paneles internos (NetAlertX/Apprise) hacia la LAN
+Documentation=file:///root/safeLock_SoC/scripts/panel-lockdown.sh
+# Las reglas viven solo en memoria del kernel (no iptables-persistent) -> deben
+# reaplicarse en cada boot. tailscale0 debe existir para que la regla ACCEPT
+# correspondiente tenga efecto inmediato.
+After=network-online.target tailscaled.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/root/safeLock_SoC/scripts/panel-lockdown.sh
+
+[Install]
+WantedBy=multi-user.target

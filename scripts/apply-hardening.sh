@@ -140,9 +140,21 @@ chmod +x "$DIR/scripts/boot-sentinel.sh" 2>/dev/null || true
 install -D -m644 "$DIR/systemd/safelock-boot-sentinel.service" /etc/systemd/system/safelock-boot-sentinel.service
 log "sentinela de apagado instalado"
 
+# 15) Cerrar paneles internos sin autenticacion hacia la LAN. Todos los contenedores usan
+#     network_mode: host -> sus webs (NetAlertX :20211 dashboard + :20212 API, Apprise
+#     :8000 API) quedan pegadas directo a la IP del dispositivo, SIN login, visibles a
+#     cualquiera en la red (mismo problema que ya se corrigio en Pi-hole via pihole.toml).
+#     Nada del stack les habla por HTTP -> se bloquean hacia la LAN; se deja loopback y
+#     Tailscale para que el dueño pueda depurar en remoto. Reglas en memoria del kernel,
+#     por eso el servicio debe correr en cada boot (no hay iptables-persistent instalado).
+chmod +x "$DIR/scripts/panel-lockdown.sh" 2>/dev/null || true
+install -D -m644 "$DIR/systemd/safelock-panel-lockdown.service" /etc/systemd/system/safelock-panel-lockdown.service
+log "paneles internos (netalertx/apprise) bloqueados hacia la LAN (permitido: loopback + tailscale)"
+
 systemctl daemon-reload
 systemctl enable --now safelock-flight-recorder.timer >/dev/null 2>&1 || true
 systemctl enable --now safelock-boot-sentinel.service >/dev/null 2>&1 || true
+systemctl enable --now safelock-panel-lockdown.service >/dev/null 2>&1 || true
 systemctl enable safelock-cpufreq.service >/dev/null 2>&1 || true
 systemctl restart p0f >/dev/null 2>&1 || true               # aplica StandardOutput=null
 systemctl restart systemd-journald >/dev/null 2>&1 || true  # aplica el techo del journal
