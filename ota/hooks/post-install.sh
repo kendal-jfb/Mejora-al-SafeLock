@@ -46,5 +46,29 @@ if [ -f /etc/avahi/avahi-daemon.conf ] && ! grep -qE '^allow-interfaces=end0' /e
     log "avahi limitado a end0"
 fi
 
-# best-effort: nunca revertir el release por el fix de mDNS
+# ── Whitelist de bancos de Costa Rica y firma digital ───────────────────────────
+# Las listas de terceros de Pi-hole (phishing.army, Phishing.Database, urlhaus-filter,
+# hagezi/pro.txt) cambian constantemente y a veces cazan como falso positivo un
+# subdominio real de banca o del sistema de firma digital (ej. mercadeo.promerica.fi.cr
+# via hagezi/pro.txt, visto en produccion). Un allow-regex en domainlist (type=2) gana
+# siempre sobre cualquier coincidencia de gravity, sin importar que lista lo capture.
+# gravity.db es un bind mount de datos que sobrevive a los releases (docs/OTA.md); la
+# ruta no cambia entre versiones. No requiere red/apt -> corre tambien en modo base
+# (pihole detenido: el INSERT igual queda listo para cuando se active).
+GRAVITY_DB="/root/safeLock_SoC/pihole/etc-pihole/gravity.db"
+if command -v sqlite3 >/dev/null 2>&1 && [ -f "$GRAVITY_DB" ]; then
+    if sqlite3 "$GRAVITY_DB" \
+        "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (2, '(\.|^)(bccr\.fi\.cr|micitt\.go\.cr|gob\.go\.cr|bncr\.fi\.cr|bancobcr\.com|bancopopular\.fi\.cr|bac\.net|davivienda\.cr|scotiabankcr\.com|promerica\.fi\.cr)\$', 1, '[WHITELIST_BANCA_CR]');" 2>/dev/null; then
+        log "whitelist banca CR/firma digital OK en domainlist"
+    else
+        log "AVISO: no se pudo escribir el whitelist de banca CR en gravity.db"
+    fi
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx pihole; then
+        docker exec pihole pihole reloaddns >/dev/null 2>&1 || true
+    fi
+else
+    log "AVISO: sqlite3 o gravity.db no disponibles; se omite whitelist banca CR"
+fi
+
+# best-effort: nunca revertir el release por el fix de mDNS o el whitelist de banca
 exit 0
