@@ -59,13 +59,21 @@ fi
 log "=== inicio de migracion a OTA v2 ==="
 
 # --- 1. Identidad del equipo -----------------------------------------------
-if [ ! -s /etc/safelock-id ]; then
-  MAC="$(cat /sys/class/net/end0/address 2>/dev/null | tr -d ':')"
-  if [ -z "$MAC" ]; then
-    fallo "no se pudo determinar la MAC de end0 para el device-id"
+# La identidad la manda la MAC de end0, NO lo que venga en /etc/safelock-id. Una
+# imagen golden puede arrastrar el id del MASTER en ese archivo (golden-firstboot
+# solo lo reescribe en el primer arranque de un clon nuevo); sin corregirlo aqui,
+# todos los clones se enrolarian con el mismo id -> 409 y fallo de auth en las
+# llamadas target/artifact -> el equipo se queda en v1. Mismo criterio que
+# ota_agent.py::canonical_device_id: si la MAC no coincide con el archivo, gana la MAC.
+MAC="$(cat /sys/class/net/end0/address 2>/dev/null | tr -d ':')"
+if [ -n "$MAC" ]; then
+  CANON="safelock-$MAC"
+  if [ "$(cat /etc/safelock-id 2>/dev/null)" != "$CANON" ]; then
+    echo "$CANON" > /etc/safelock-id
+    log "device-id fijado desde la MAC: $CANON (corrige un id arrastrado de la imagen)"
   fi
-  echo "safelock-$MAC" > /etc/safelock-id
-  log "device-id creado: safelock-$MAC"
+elif [ ! -s /etc/safelock-id ]; then
+  fallo "no se pudo determinar la MAC de end0 ni hay /etc/safelock-id previo"
 fi
 DEVICE_ID="$(cat /etc/safelock-id)"
 log "device-id: $DEVICE_ID"

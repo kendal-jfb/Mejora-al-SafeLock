@@ -2,6 +2,12 @@
 set -euo pipefail
 
 export GIT_TERMINAL_PROMPT=0
+# El fetch corre bajo systemd (no interactivo): si github.com no esta en known_hosts,
+# la verificacion de host key aborta el fetch y el equipo se queda clavado en su commit.
+# accept-new confia la clave en el primer contacto pero sigue rechazando un CAMBIO de
+# clave (proteccion MITM). Las claves ademas vienen ancladas por apply-hardening en
+# /etc/ssh/ssh_known_hosts; esto es el cinturon para un equipo que aun no las tenga.
+export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o BatchMode=yes"
 
 LOG="/var/log/safelock-update.log"
 DIR="/root/safeLock_SoC"
