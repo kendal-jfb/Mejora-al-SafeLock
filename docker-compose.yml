@@ -1,0 +1,44 @@
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Backend API (FastAPI) con auto-recarga
+  # ----------------------------------------------------------------------------
+  api:
+    image: python:3.11-slim
+    container_name: safelock-api-dev
+    working_dir: /app
+    ports:
+      - "8090:8090"
+    volumes:
+      # Monta tu código local en tiempo real:
+      - ./api:/app/api
+      - ./requirements.txt:/app/requirements.txt
+      # Monta los datos persistentes y el socket de Docker:
+      - ./netalertx/data:/data/netalertx/data
+      - ./pihole/etc-pihole:/data/pihole/etc-pihole
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SAFELOCK_DATA_DIR=/data
+    # Instala dependencias y arranca con --reload (detecta cambios en el código):
+    command: >
+      sh -c "pip install -r requirements.txt &&
+             uvicorn main:app --app-dir /app/api --host 0.0.0.0 --port 8090 --reload"
+
+  # ----------------------------------------------------------------------------
+  # 2. Frontend Portal (React + Vite) con Hot Reload
+  # ----------------------------------------------------------------------------
+  portal:
+    image: node:20-alpine
+    container_name: safelock-portal-dev
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    volumes:
+      # Monta el código del portal en tiempo real:
+      - ./portal:/app
+      # Evita que el node_modules del contenedor se sobreescriba con el del host:
+      - /app/node_modules
+    # Instala dependencias si faltan y arranca el servidor Vite:
+    command: >
+      sh -c "npm install &&
+             npm run dev -- --host 0.0.0.0"
