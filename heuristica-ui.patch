@@ -1,0 +1,182 @@
+diff --git a/portal/src/App.jsx b/portal/src/App.jsx
+index 16a6c3c..2b944e9 100644
+--- a/portal/src/App.jsx
++++ b/portal/src/App.jsx
+@@ -596,6 +596,161 @@ function DevicesView() {
+   );
+ }
+ 
++// ── Protección Heurística (Heuristic Sentinel) ────────────────────────────────
++// Mientras /sentinel/status no exista, la vista usa estos dispositivos de ejemplo.
++const SENTINEL_MOCK = {
++  mode: "shadow",
++  last_run: new Date().toISOString(),
++  devices: [
++    { ip:"192.168.1.20", mac:"AA:BB:CC:00:00:01", name:"Laptop de Ana", state:"green",  reasons:[], dga_domains:[], nxdomain_rate:0.02, queries:318 },
++    { ip:"192.168.1.35", mac:"AA:BB:CC:00:00:02", name:"Smart TV Sala", state:"yellow", reasons:["beaconing"], dga_domains:[], nxdomain_rate:0.08, queries:142 },
++    { ip:"192.168.1.50", mac:"AA:BB:CC:00:00:03", name:"Celular desconocido", state:"red", reasons:["dga","nxdomain"], dga_domains:["x8f9q2azmkd4.com","q7vw0plz3nhe.net"], nxdomain_rate:0.41, queries:207 },
++  ],
++};
++
++const SENTINEL_STATE = {
++  green:  { label:"Normal",             color:"var(--ok)",    bg:"color-mix(in srgb, var(--ok) 14%, transparent)" },
++  yellow: { label:"Sospechoso",         color:"var(--amber)", bg:"var(--amber-dim)" },
++  red:    { label:"Probable infección", color:"var(--red)",   bg:"var(--red-dim)" },
++};
++const SENTINEL_REASON = {
++  dga:       "Dominios con nombre aleatorio (posible DGA)",
++  beaconing: "Consultas a intervalos idénticos (beaconing)",
++  nxdomain:  "Muchas consultas a dominios inexistentes",
++};
++
++function SemaforoChip({ state }) {
++  const s = SENTINEL_STATE[state] || SENTINEL_STATE.green;
++  return (
++    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontFamily:"var(--mono)", fontSize:10, fontWeight:700, letterSpacing:".08em", textTransform:"uppercase", color:s.color, background:s.bg, border:`1px solid ${s.color}`, borderRadius:999, padding:"4px 10px", whiteSpace:"nowrap" }}>
++      <Dot color={s.color} pulse={state==="red"}/> {s.label}
++    </span>
++  );
++}
++
++function HeuristicView() {
++  const { data, error } = useAPI("/sentinel/status", 30000);
++  const demo = error || !data?.devices;
++  const info = demo ? SENTINEL_MOCK : data;
++  const [modeDraft, setModeDraft] = useState(null);
++  const [confirming, setConfirming] = useState(false);
++  const [saving, setSaving] = useState(false);
++  const [msg, setMsg] = useState("");
++  const mode = modeDraft ?? info.mode ?? "shadow";
++  const protect = mode === "protect";
++  const devices = info.devices || [];
++  const count = (st) => devices.filter(d => d.state === st).length;
++  const alerts = devices.filter(d => d.state !== "green");
++
++  const applyMode = async (next) => {
++    setSaving(true); setMsg(""); setConfirming(false);
++    try {
++      const r = await fetch(`${API}/sentinel/mode`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ mode: next }) });
++      if (!r.ok) throw new Error();
++      setModeDraft(next);
++    } catch {
++      if (demo) setModeDraft(next); else setMsg("No se pudo cambiar el modo. Intenta de nuevo.");
++    } finally { setSaving(false); }
++  };
++  const onToggle = () => (protect ? applyMode("shadow") : setConfirming(true));
++
++  return (
++    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
++      {demo && (
++        <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--amber)", background:"var(--amber-dim)", border:"1px solid var(--amber)", borderRadius:6, padding:"8px 14px" }}>
++          Mostrando datos de ejemplo: el módulo heurístico aún no está conectado.
++        </div>
++      )}
++
++      <Panel teal={protect}>
++        <PHead title="Protección heurística" icon={<Icon.Bug s={14}/>} right={protect ? "protección activa" : "modo sombra"}/>
++        <div style={{ padding:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
++          <div style={{ flex:"1 1 260px", minWidth:0 }}>
++            <div style={{ fontSize:15, fontWeight:600, color:"var(--title)" }}>
++              {protect ? "Protección activa" : "Modo Sombra (auditoría)"}
++            </div>
++            <div style={{ fontSize:13, color:"var(--text3)", marginTop:6, lineHeight:1.5 }}>
++              {protect
++                ? "Los dominios sospechosos se bloquean automáticamente para toda la red."
++                : "Solo avisa: no bloquea nada. Útil para revisar falsos positivos antes de activar la protección."}
++            </div>
++          </div>
++          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
++            <span style={{ fontFamily:"var(--mono)", fontSize:10, color:protect?"var(--text4)":"var(--teal-brt)", textTransform:"uppercase" }}>Sombra</span>
++            <ToggleSwitch checked={protect} onChange={onToggle} loading={saving}/>
++            <span style={{ fontFamily:"var(--mono)", fontSize:10, color:protect?"var(--teal-brt)":"var(--text4)", textTransform:"uppercase" }}>Protección</span>
++          </div>
++        </div>
++        {confirming && (
++          <div style={{ padding:"14px 20px", borderTop:"1px solid var(--amber)", background:"var(--amber-dim)", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
++            <span style={{ fontSize:13, color:"var(--text)" }}>¿Activar el bloqueo automático? Un falso positivo podría bloquear un sitio legítimo.</span>
++            <span style={{ display:"flex", gap:8 }}>
++              <button onClick={()=>setConfirming(false)} style={{ background:"var(--bg2)", color:"var(--text)", border:"1px solid var(--border)", borderRadius:6, padding:"8px 14px", fontSize:12, cursor:"pointer" }}>Cancelar</button>
++              <button onClick={()=>applyMode("protect")} style={{ background:"var(--teal-brt)", color:"#000", border:"none", borderRadius:6, padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Activar</button>
++            </span>
++          </div>
++        )}
++        {msg && <div style={{ padding:"10px 20px", fontSize:12, color:"var(--red)", borderTop:"1px solid var(--border)" }}>{msg}</div>}
++      </Panel>
++
++      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:12 }}>
++        {["green","yellow","red"].map(st => (
++          <div key={st} style={{ background:"var(--bg2)", border:"1px solid var(--border)", borderRadius:8, padding:"14px 18px", position:"relative", overflow:"hidden" }}>
++            <div style={{ position:"absolute", top:0, left:0, width:4, height:"100%", background:SENTINEL_STATE[st].color }}/>
++            <div style={{ fontFamily:"var(--mono)", fontSize:28, color:"var(--title)", lineHeight:1 }}>{count(st)}</div>
++            <div style={{ fontFamily:"var(--mono)", fontSize:10, color:SENTINEL_STATE[st].color, marginTop:6, textTransform:"uppercase", letterSpacing:".08em" }}>{SENTINEL_STATE[st].label}</div>
++          </div>
++        ))}
++      </div>
++
++      {alerts.length > 0 && (
++        <Panel error={alerts.some(d => d.state === "red")}>
++          <PHead title="Alertas" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${alerts.length} dispositivo${alerts.length>1?"s":""}`}/>
++          {alerts.map(d => (
++            <div key={d.ip} style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", fontSize:13, color:"var(--text2)" }}>
++              Dispositivo <span style={{ fontFamily:"var(--mono)", color:"var(--title)" }}>{d.ip}</span> {protect ? "intentó resolver un dominio sospechoso (bloqueado)" : "intentó resolver un dominio sospechoso"}.
++            </div>
++          ))}
++        </Panel>
++      )}
++
++      <Panel>
++        <PHead title="Semáforo por dispositivo" icon={<Icon.Monitor s={14}/>} right={`${devices.length} dispositivos`}/>
++        <div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
++          {devices.map(d => {
++            const s = SENTINEL_STATE[d.state] || SENTINEL_STATE.green;
++            return (
++              <div key={d.ip} style={{ background:"var(--bg3)", border:"1px solid var(--border)", borderRadius:8, padding:"14px 16px 14px 20px", position:"relative", overflow:"hidden", minWidth:0 }}>
++                <div style={{ position:"absolute", top:0, left:0, width:4, height:"100%", background:s.color }}/>
++                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
++                  <div style={{ minWidth:0 }}>
++                    <div style={{ fontSize:14, fontWeight:600, color:"var(--title)", wordBreak:"break-word" }}>{d.name || d.mac || "Desconocido"}</div>
++                    <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text3)", marginTop:3 }}>{d.ip}</div>
++                  </div>
++                  <SemaforoChip state={d.state}/>
++                </div>
++                {d.reasons?.length > 0 && (
++                  <ul style={{ margin:"12px 0 0", paddingLeft:18, fontSize:12, color:"var(--text2)", lineHeight:1.6 }}>
++                    {d.reasons.map(r => <li key={r}>{SENTINEL_REASON[r] || r}</li>)}
++                  </ul>
++                )}
++                {d.dga_domains?.length > 0 && (
++                  <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:4 }}>
++                    {d.dga_domains.map(dom => <span key={dom} style={{ fontFamily:"var(--mono)", fontSize:11, color:s.color, wordBreak:"break-all" }}>{dom}</span>)}
++                  </div>
++                )}
++                <div style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)", marginTop:12 }}>
++                  {d.queries} consultas · {Math.round((d.nxdomain_rate||0)*100)}% inexistentes
++                </div>
++              </div>
++            );
++          })}
++        </div>
++      </Panel>
++    </div>
++  );
++}
++
+ function SettingsView() {
+   const { data: systemInfo } = useAPI("/system-info", 60000);
+   const [email, setEmail] = useState("");
+@@ -1252,6 +1407,7 @@ export default function App() {
+   const navItems = [
+     { id:"dashboard", label:"Dashboard", icon:<Icon.Grid/> },
+     { id:"devices",   label:"Mi Red",    icon:<Icon.Monitor/> },
++    { id:"heuristic", label:"Heurística", icon:<Icon.Bug/> },
+     { id:"settings",  label:"Soporte",   icon:<Icon.Settings/> },
+   ];
+ 
+@@ -1383,6 +1539,7 @@ export default function App() {
+         <main className="scroll-area">
+           {tab==="dashboard" && <Dashboard premiumActive={premiumActive} onOpenPremium={()=>setShowP(true)} onGoPremium={()=>setTab("premium")}/>}
+           {tab==="devices"   && <DevicesView/>}
++          {tab==="heuristic" && <HeuristicView/>}
+           {tab==="settings"  && <SettingsView/>}
+           {tab==="premium"   && <PremiumView/>}
+         </main>
