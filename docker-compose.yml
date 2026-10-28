@@ -21,7 +21,8 @@ services:
       - PYTHONUNBUFFERED=1
       - SAFELOCK_DATA_DIR=/data
     command: >
-      sh -c "pip install -r requirements.txt &&
+      sh -c "apt-get update && apt-get install -y --no-install-recommends docker.io &&
+             pip install -r requirements.txt &&
              uvicorn main:app --app-dir /app/api --host 0.0.0.0 --port 8090 --reload"
 
   # ============================================================================
