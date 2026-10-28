@@ -1,7 +1,7 @@
 services:
-  # ----------------------------------------------------------------------------
-  # 1. Backend API (FastAPI) con auto-recarga
-  # ----------------------------------------------------------------------------
+  # ============================================================================
+  # 1. API Backend (FastAPI con Auto-Reload)
+  # ============================================================================
   api:
     image: python:3.11-slim
     container_name: safelock-api-dev
@@ -9,24 +9,24 @@ services:
     ports:
       - "8090:8090"
     volumes:
-      # Monta tu código local en tiempo real:
+      # Código y dependencias
       - ./api:/app/api
       - ./requirements.txt:/app/requirements.txt
-      # Monta los datos persistentes y el socket de Docker:
+      # Datos persistentes de servicios para lectura de la API
       - ./netalertx/data:/data/netalertx/data
       - ./pihole/etc-pihole:/data/pihole/etc-pihole
+      # Control de contenedores vía Docker socket
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
       - SAFELOCK_DATA_DIR=/data
-    # Instala dependencias y arranca con --reload (detecta cambios en el código):
     command: >
       sh -c "pip install -r requirements.txt &&
              uvicorn main:app --app-dir /app/api --host 0.0.0.0 --port 8090 --reload"
 
-  # ----------------------------------------------------------------------------
-  # 2. Frontend Portal (React + Vite) con Hot Reload
-  # ----------------------------------------------------------------------------
+  # ============================================================================
+  # 2. Portal Frontend (React + Vite con Hot-Reload)
+  # ============================================================================
   portal:
     image: node:20-alpine
     container_name: safelock-portal-dev
@@ -34,11 +34,59 @@ services:
     ports:
       - "5173:5173"
     volumes:
-      # Monta el código del portal en tiempo real:
       - ./portal:/app
-      # Evita que el node_modules del contenedor se sobreescriba con el del host:
       - /app/node_modules
-    # Instala dependencias si faltan y arranca el servidor Vite:
     command: >
       sh -c "npm install &&
              npm run dev -- --host 0.0.0.0"
+
+  # ============================================================================
+  # 3. Pi-hole (DNS Sinkhole & Bloqueador)
+  # ============================================================================
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    environment:
+      - TZ=America/Costa_Rica
+    volumes:
+      - ./pihole/etc-pihole:/etc/pihole
+    restart: unless-stopped
+
+  # ============================================================================
+  # 4. NetAlertX (Escáner de red y monitoreo de dispositivos)
+  # ============================================================================
+  netalertx:
+    image: jokobsk/netalertx:latest
+    container_name: netalertx
+    ports:
+      - "20211:20211"
+    environment:
+      - TZ=America/Costa_Rica
+      - PORT=20211
+    volumes:
+      - ./netalertx/data/config:/data/config
+      - ./netalertx/data/db:/data/db
+      - ./netalertx/data/log:/data/log
+      - ./netalertx/data/api:/data/api
+    restart: unless-stopped
+
+  # ============================================================================
+  # 5. OpenCanary (Honeypot para detección de intrusos)
+  # ============================================================================
+  opencanary:
+    image: cifre/opencanary:latest
+    container_name: opencanary
+    volumes:
+      - ./netalertx/data/opencanary:/var/log
+    restart: unless-stopped
+
+  # ============================================================================
+  # 6. Apprise (Gestor de notificaciones y alertas)
+  # ============================================================================
+  apprise:
+    image: caronc/apprise:latest
+    container_name: apprise
+    restart: unless-stopped
