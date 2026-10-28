@@ -61,6 +61,7 @@ services:
   netalertx:
     image: jokobsk/netalertx:latest
     container_name: netalertx
+    privileged: true
     ports:
       - "20211:20211"
     environment:
@@ -77,7 +78,7 @@ services:
   # 5. OpenCanary (Honeypot para detección de intrusos)
   # ============================================================================
   opencanary:
-    image: cifre/opencanary:latest
+    build: ./opencanary
     container_name: opencanary
     volumes:
       - ./netalertx/data/opencanary:/var/log
