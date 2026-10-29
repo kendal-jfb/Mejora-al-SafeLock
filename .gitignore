@@ -36,6 +36,8 @@ pihole/etc-pihole/*.db
 pihole/etc-pihole/cli_pw
 pihole/etc-pihole/tls*
 pihole/etc-pihole/dhcp.leases
+pihole/etc-pihole/dnsmasq.conf
+pihole/etc-pihole/migration_backup/
 
 *.bak
 *.img
