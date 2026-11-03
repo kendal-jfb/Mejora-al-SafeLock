@@ -10,9 +10,9 @@ Responsabilidades (Persona 1):
    - Consultas bloqueadas por listas negras.
    - Beaconing (conexiones periódicas insistentes a dominios externos).
    - Nombres generados al azar (DGA - Domain Generation Algorithm).
-4. Calcular el nivel de riesgo: 'normal', 'sospechoso' o 'peligro'.
-5. Exportar la función principal `analizar_red()` para que Persona 2 (API)
-   la consuma directamente.
+4. Calcular el nivel de riesgo: 'green'/'normal', 'yellow'/'sospechoso', 'red'/'peligro'.
+5. Exportar la función principal `analizar_red()` compatible al 100% con
+   la interfaz de Persona 3 (React) y la API de Persona 2 (FastAPI).
 """
 
 import os
@@ -23,8 +23,6 @@ from datetime import datetime, timedelta
 # ==============================================================================
 # CONFIGURACIÓN Y RUTAS DE BASES DE DATOS
 # ==============================================================================
-# Compatible tanto con el entorno de producción en SafeLock (/root/safeLock_SoC)
-# como con el entorno de desarrollo local en Windows.
 DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
 if DATA_DIR and os.path.exists(DATA_DIR):
     NETALERTX_DB = os.path.join(DATA_DIR, "netalertx", "data", "db", "app.db")
@@ -34,7 +32,6 @@ else:
     NETALERTX_DB = os.path.join(BASE_DIR, "netalertx", "data", "db", "app.db")
     PIHOLE_DB = os.path.join(BASE_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
 
-# Dominios y extensiones comunes para evitar falsos positivos
 WHITELIST_DOMINIOS = {
     "google.com", "gstatic.com", "googleapis.com", "youtube.com",
     "microsoft.com", "windows.com", "live.com", "msftncsi.com", "windowsupdate.com",
@@ -104,8 +101,45 @@ def obtener_dispositivos():
 
 
 # ==============================================================================
-# PASO 2: SEÑAL 1 - CONSULTAS BLOQUEADAS POR PI-HOLE
+# PASO 2: CONSULTAS Y ACTIVIDAD DNS GENERAL (Pi-hole)
 # ==============================================================================
+def obtener_metricas_dns(ip, horas=24):
+    """
+    Obtiene estadísticas generales de actividad DNS para una IP:
+    total de consultas y porcentaje de dominios inexistentes (NXDOMAIN).
+    """
+    if not os.path.exists(PIHOLE_DB):
+        return 0, 0.0
+
+    total_queries = 0
+    nxdomain_rate = 0.0
+
+    try:
+        conn = sqlite3.connect(PIHOLE_DB)
+        cursor = conn.cursor()
+        limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
+
+        # Total de consultas
+        total_queries = cursor.execute("""
+            SELECT COUNT(*) FROM queries
+            WHERE client = ? AND timestamp > ?
+        """, (ip, limite_tiempo)).fetchone()[0]
+
+        if total_queries > 0:
+            # En Pi-hole status 3 = NXDOMAIN o respondido inexistente
+            nx_count = cursor.execute("""
+                SELECT COUNT(*) FROM queries
+                WHERE client = ? AND status = 3 AND timestamp > ?
+            """, (ip, limite_tiempo)).fetchone()[0]
+            nxdomain_rate = round(nx_count / total_queries, 2)
+
+        conn.close()
+    except Exception as e:
+        print(f"[threat_engine] Error al obtener métricas DNS para {ip}: {e}")
+
+    return total_queries, nxdomain_rate
+
+
 def contar_bloqueados(ip, horas=24):
     """
     Consulta en Pi-hole cuántas peticiones de esta IP fueron bloqueadas
@@ -152,7 +186,7 @@ def contar_bloqueados(ip, horas=24):
 
 
 # ==============================================================================
-# PASO 3: SEÑAL 2 - DETECCIÓN DE BEACONING (Llamadas periódicas insistentes)
+# PASO 3: DETECCIÓN DE BEACONING (Llamadas periódicas insistentes)
 # ==============================================================================
 def detectar_beaconing(ip, horas=1, umbral=20):
     """
@@ -185,7 +219,6 @@ def detectar_beaconing(ip, horas=1, umbral=20):
             if not dominio or dominio.endswith(".arpa") or dominio == "localhost":
                 continue
 
-            # Filtrar si pertenece a la lista blanca de dominios gigantes conocidos
             es_seguro = any(dominio == base or dominio.endswith("." + base) for base in WHITELIST_DOMINIOS)
             if not es_seguro:
                 sospechosos.append({"dominio": dominio, "veces": veces})
@@ -197,15 +230,11 @@ def detectar_beaconing(ip, horas=1, umbral=20):
 
 
 # ==============================================================================
-# PASO 4: SEÑAL 3 - DETECCIÓN DE DOMINIOS DGA (Generados por virus)
+# PASO 4: DETECCIÓN DE DOMINIOS DGA (Generados por virus)
 # ==============================================================================
 def es_nombre_dga(dominio):
     """
-    Analiza las características léxicas de un dominio para determinar
-    si parece haber sido generado automáticamente por un virus:
-    - Alta concentración de consonantes / letras aleatorias.
-    - Extensiones (.tld) frecuentemente abusadas por malware.
-    - Longitud inusualmente azarosa sin vocales.
+    Determina si un dominio tiene características de generador aleatorio (DGA).
     """
     if not dominio or len(dominio) < 5:
         return False
@@ -217,17 +246,14 @@ def es_nombre_dga(dominio):
     subnombre = partes[0]
     tld = "." + partes[-1]
 
-    # Verificar si usa una extensión sospechosa
     tiene_tld_sospechoso = tld in EXTENSIONES_SOSPECHOSAS
 
-    # Extraer solo letras
     letras = [c for c in subnombre if c.isalpha()]
     if len(letras) >= 6:
         vocales = set("aeiou")
         consonantes = sum(1 for c in letras if c not in vocales)
         ratio_consonantes = consonantes / len(letras)
 
-        # Si más del 70% son consonantes (ej: xk3mq2vp), es altamente sospechoso
         if ratio_consonantes >= 0.70:
             return True
 
@@ -270,54 +296,64 @@ def buscar_dominios_dga(ip, horas=24):
     except Exception as e:
         print(f"[threat_engine] Error al buscar DGA para {ip}: {e}")
 
-    return dga_detectados[:5]  # Devolver máximo 5 evidencias
+    return dga_detectados[:5]
 
 
 # ==============================================================================
 # PASO 5: SISTEMA DE PUNTUACIÓN Y ASIGNACIÓN DE SEMÁFORO
 # ==============================================================================
-def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga):
+def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga, nxdomain_rate=0.0):
     """
-    Calcula una puntuación de riesgo entre 0 y 100 basada en las 3 señales:
-    - 0 a 20 puntos:   'normal' (🟢)
-    - 21 a 59 puntos:  'sospechoso' (🟡)
-    - 60 a 100 puntos: 'peligro' (🔴)
+    Calcula una puntuación y devuelve tanto las etiquetas en español
+    como los códigos estándar esperados por el frontend ('green', 'yellow', 'red',
+    y reasons: ['dga', 'beaconing', 'nxdomain']).
     """
     puntuacion = 0
-    motivos = []
+    motivos_espanol = []
+    reasons_codes = []
 
-    # 1. Puntos por dominios bloqueados en Pi-hole
+    # 1. Bloqueos en Pi-hole
     if bloqueados > 0:
         if bloqueados >= 10:
             puntuacion += 40
         else:
             puntuacion += 25
         ejemplos_txt = f" (ej: {', '.join(ejemplos_bloqueados)})" if ejemplos_bloqueados else ""
-        motivos.append(f"Pi-hole bloqueó {bloqueados} intento(s) de conexión a sitios restringidos{ejemplos_txt}.")
+        motivos_espanol.append(f"Pi-hole bloqueó {bloqueados} intento(s) de conexión a sitios restringidos{ejemplos_txt}.")
 
-    # 2. Puntos por Beaconing
+    # 2. Beaconing
     if beaconing:
         puntuacion += 35
+        reasons_codes.append("beaconing")
         detalles_b = [f"{b['dominio']} ({b['veces']} veces)" for b in beaconing[:2]]
-        motivos.append(f"Actividad repetitiva sospechosa (Beaconing) hacia: {', '.join(detalles_b)}.")
+        motivos_espanol.append(f"Actividad repetitiva sospechosa (Beaconing) hacia: {', '.join(detalles_b)}.")
 
-    # 3. Puntos por DGA
+    # 3. DGA
     if dga:
         puntuacion += 45
-        motivos.append(f"Consulta a dominio(s) con patrón de virus/DGA: {', '.join(dga[:3])}.")
+        reasons_codes.append("dga")
+        motivos_espanol.append(f"Consulta a dominio(s) con patrón de virus/DGA: {', '.join(dga[:3])}.")
 
-    # Limitar puntuación a un máximo de 100
+    # 4. Tasa alta de NXDOMAIN
+    if nxdomain_rate >= 0.35:
+        puntuacion += 25
+        reasons_codes.append("nxdomain")
+        motivos_espanol.append(f"Alta tasa de dominios inexistentes ({int(nxdomain_rate*100)}%).")
+
     puntuacion = min(100, puntuacion)
 
-    # Clasificar en el semáforo acordado en el contrato
+    # Asignación del semáforo
     if puntuacion >= 60:
         riesgo = "peligro"
+        state = "red"
     elif puntuacion >= 21:
         riesgo = "sospechoso"
+        state = "yellow"
     else:
         riesgo = "normal"
+        state = "green"
 
-    return riesgo, puntuacion, motivos
+    return riesgo, state, puntuacion, motivos_espanol, reasons_codes
 
 
 # ==============================================================================
@@ -325,9 +361,9 @@ def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga):
 # ==============================================================================
 def analizar_red():
     """
-    Punto de entrada principal del motor de detección.
-    Escanea todos los dispositivos, calcula sus métricas y devuelve el
-    resultado en el formato JSON acordado por el equipo.
+    Escanea todos los dispositivos y genera el reporte completo.
+    Estructurado para satisfacer tanto el contrato original como la vista Heurística
+    creada en React por Persona 3.
     """
     dispositivos_raw = obtener_dispositivos()
     resultado_dispositivos = []
@@ -337,41 +373,53 @@ def analizar_red():
         nombre = dev["nombre"]
         mac = dev["mac"]
 
-        # 1. Analizar bloqueos
+        # Métricas generales de consultas
+        total_queries, nxdomain_rate = obtener_metricas_dns(ip, horas=24)
+
+        # Señales de amenaza
         total_bloqueados, ejemplos_bloq = contar_bloqueados(ip, horas=24)
-
-        # 2. Analizar beaconing
         sospechosos_beaconing = detectar_beaconing(ip, horas=1, umbral=20)
-
-        # 3. Analizar DGA
         dominios_dga = buscar_dominios_dga(ip, horas=24)
 
-        # 4. Calcular nivel de riesgo
-        riesgo, puntuacion, motivos = calcular_riesgo(
+        # Cálculo de riesgo y semáforo
+        riesgo, state, puntuacion, motivos, reasons = calcular_riesgo(
             total_bloqueados,
             ejemplos_bloq,
             sospechosos_beaconing,
-            dominios_dga
+            dominios_dga,
+            nxdomain_rate
         )
 
         resultado_dispositivos.append({
+            # Campos consumidos por el componente React de Persona 3
             "ip": ip,
-            "nombre": nombre,
             "mac": mac,
-            "riesgo": riesgo,
+            "name": nombre,
+            "state": state,                # 'green', 'yellow', 'red'
+            "reasons": reasons,            # ['beaconing', 'dga', 'nxdomain']
+            "dga_domains": dominios_dga,
+            "queries": total_queries,
+            "nxdomain_rate": nxdomain_rate,
+
+            # Campos en español del contrato original
+            "nombre": nombre,
+            "riesgo": riesgo,              # 'normal', 'sospechoso', 'peligro'
             "puntuacion": puntuacion,
             "motivos": motivos
         })
 
     return {
+        "mode": "shadow",  # Modo por defecto (Sombra / Auditoría)
+        "last_run": datetime.now().isoformat(),
         "analizado_en": datetime.now().isoformat(),
         "total_dispositivos": len(resultado_dispositivos),
-        "dispositivos": resultado_dispositivos
+        "devices": resultado_dispositivos,      # Esperado por React
+        "dispositivos": resultado_dispositivos   # Esperado por contrato
     }
 
 
 # ==============================================================================
-# EJECUCIÓN DIRECTA DESDE TERMINAL (Para pruebas independientes)
+# EJECUCIÓN DIRECTA DESDE TERMINAL
 # ==============================================================================
 if __name__ == "__main__":
     print("[*] Ejecutando análisis del motor de detección de amenazas...")
