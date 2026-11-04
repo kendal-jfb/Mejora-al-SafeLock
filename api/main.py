@@ -1,4 +1,4 @@
-from typing import Optional
+﻿from typing import Optional
 import re
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
@@ -403,6 +403,11 @@ def get_honeypot_events(background_tasks: BackgroundTasks):
         return {"error": str(e), "events": []}
 
     events.reverse()
+    try:
+        sentinel_events = get_sentinel_honeypot_alerts()
+        events = sentinel_events + events
+    except Exception:
+        pass
     return {"total": len(events), "events": events[:100]}
 @app.get("/devices")
 def get_devices():
@@ -667,3 +672,51 @@ def save_pihole_pack_schedule(payload: PackSchedulePayload):
         return {"success": True, "pack": payload.pack, "schedule": schedule}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ── SafeLock Heuristic Sentinel (Persona 2: El Conector) ─────────────────────
+from sentinel_connector import (
+    get_sentinel_honeypot_alerts,
+    get_sentinel_status,
+    sync_pihole_blocks,
+    update_sentinel_mode,
+)
+
+
+class SentinelModePayload(BaseModel):
+    mode: str
+
+
+class SentinelBlockPayload(BaseModel):
+    domain: str
+    enabled: bool = True
+
+
+@app.get("/sentinel/status")
+def read_sentinel_status():
+    """Devuelve el estado del Modo Seguro y el semáforo de dispositivos (Persona 1 -> Persona 3)."""
+    try:
+        return get_sentinel_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sentinel/mode")
+def change_sentinel_mode(payload: SentinelModePayload):
+    """Cambia entre Modo Sombra ('shadow') y Protección Activa ('protect')."""
+    try:
+        return update_sentinel_mode(payload.mode)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sentinel/block")
+def block_sentinel_domain(payload: SentinelBlockPayload):
+    """Permite bloquear o desbloquear un dominio manualmente bajo [HEURISTIC_SHIELD]."""
+    try:
+        applied = sync_pihole_blocks([payload.domain], enable_block=payload.enabled)
+        return {"success": True, "domain": payload.domain, "enabled": payload.enabled, "applied": applied}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
