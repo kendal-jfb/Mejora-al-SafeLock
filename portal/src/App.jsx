@@ -597,15 +597,12 @@ function DevicesView() {
 }
 
 // ── Protección Heurística (Heuristic Sentinel) ────────────────────────────────
-// Mientras /sentinel/status no exista, la vista usa estos dispositivos de ejemplo.
-const SENTINEL_MOCK = {
+// Estado vacío que se muestra cuando la API aún no ha respondido o hay un error.
+// No contiene dispositivos ficticios para no confundir al usuario final.
+const SENTINEL_EMPTY = {
   mode: "shadow",
-  last_run: new Date().toISOString(),
-  devices: [
-    { ip:"192.168.1.20", mac:"AA:BB:CC:00:00:01", name:"Laptop de Ana", state:"green",  reasons:[], dga_domains:[], nxdomain_rate:0.02, queries:318 },
-    { ip:"192.168.1.35", mac:"AA:BB:CC:00:00:02", name:"Smart TV Sala", state:"yellow", reasons:["beaconing"], dga_domains:[], nxdomain_rate:0.08, queries:142 },
-    { ip:"192.168.1.50", mac:"AA:BB:CC:00:00:03", name:"Celular desconocido", state:"red", reasons:["dga","nxdomain"], dga_domains:["x8f9q2azmkd4.com","q7vw0plz3nhe.net"], nxdomain_rate:0.41, queries:207 },
-  ],
+  last_run: null,
+  devices: [],
 };
 
 const SENTINEL_STATE = {
@@ -629,9 +626,9 @@ function SemaforoChip({ state }) {
 }
 
 function HeuristicView() {
-  const { data, error } = useAPI("/sentinel/status", 30000);
-  const demo = error || !data?.devices;
-  const info = demo ? SENTINEL_MOCK : data;
+  const { data, loading, error } = useAPI("/sentinel/status", 30000);
+  const offline = error || (!loading && !data?.devices);
+  const info = offline ? SENTINEL_EMPTY : (data || SENTINEL_EMPTY);
   const [modeDraft, setModeDraft] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -649,16 +646,21 @@ function HeuristicView() {
       if (!r.ok) throw new Error();
       setModeDraft(next);
     } catch {
-      if (demo) setModeDraft(next); else setMsg("No se pudo cambiar el modo. Intenta de nuevo.");
+      setMsg("No se pudo cambiar el modo. Intenta de nuevo.");
     } finally { setSaving(false); }
   };
   const onToggle = () => (protect ? applyMode("shadow") : setConfirming(true));
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      {demo && (
+      {loading && (
+        <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text3)", background:"var(--bg2)", border:"1px solid var(--border)", borderRadius:6, padding:"8px 14px" }}>
+          Conectando con el motor de seguridad…
+        </div>
+      )}
+      {!loading && offline && (
         <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--amber)", background:"var(--amber-dim)", border:"1px solid var(--amber)", borderRadius:6, padding:"8px 14px" }}>
-          Mostrando datos de ejemplo: el módulo heurístico aún no está conectado.
+          No se pudo conectar con el motor heurístico. Verifica que la API esté en ejecución.
         </div>
       )}
 
