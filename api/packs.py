@@ -168,23 +168,25 @@ def get_pack_states():
 def set_pack_enabled(pack, enabled, source="manual"):
     validate_pack(pack)
 
-    conn = sqlite3.connect(PIHOLE_GRAVITY_DB)
-    curr = conn.cursor()
-    comment_tag = f"[{pack}]"
-    new_status = 1 if enabled else 0
-    curr.execute("UPDATE domainlist SET enabled = ? WHERE comment = ?", (new_status, comment_tag))
+    conn = sqlite3.connect(PIHOLE_GRAVITY_DB, timeout=10.0)
+    try:
+        curr = conn.cursor()
+        comment_tag = f"[{pack}]"
+        new_status = 1 if enabled else 0
+        curr.execute("UPDATE domainlist SET enabled = ? WHERE comment = ?", (new_status, comment_tag))
 
-    if curr.rowcount == 0:
+        if curr.rowcount == 0:
+            raise ValueError(f"No se encontró el pack {pack} en gravity.db")
+
+        conn.commit()
+    finally:
         conn.close()
-        raise ValueError(f"No se encontró el pack {pack} en gravity.db")
-
-    conn.commit()
-    conn.close()
 
     reload_result = subprocess.run(
         ["docker", "exec", "pihole", "pihole", "reloaddns"],
         capture_output=True,
         text=True,
+        timeout=15,
     )
     if reload_result.returncode != 0:
         raise RuntimeError(reload_result.stderr.strip() or "No se pudo recargar Pi-hole")

@@ -6,6 +6,7 @@ Corre via cron, detecta frecuencia configurada y envía reporte Base o Premium
 import sqlite3
 import json
 import os
+import sys
 import smtplib
 import subprocess
 from datetime import datetime, timedelta
@@ -60,9 +61,16 @@ def get_config():
 
 def pihole_active():
     try:
-        result = subprocess.run("docker ps | grep pihole", shell=True, capture_output=True, text=True)
-        return "pihole" in result.stdout.lower()
-    except:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        return "pihole" in [line.strip() for line in result.stdout.splitlines()]
+    except Exception:
         return False
 
 def should_send_today(frequency):
@@ -87,7 +95,9 @@ def should_send_today(frequency):
         return True
 
 def save_last_report():
-    os.makedirs(os.path.dirname(LAST_REPORT_FILE), exist_ok=True)
+    dir_name = os.path.dirname(LAST_REPORT_FILE)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     with open(LAST_REPORT_FILE, "w") as f:
         json.dump({"last_sent": datetime.now().isoformat()}, f)
 
@@ -285,11 +295,11 @@ if __name__ == "__main__":
 
     if not email:
         print("[SKIP] No hay email configurado")
-        exit(0)
+        sys.exit(0)
 
     if not should_send_today(frequency):
         print(f"[SKIP] No toca enviar hoy (frecuencia: {frequency})")
-        exit(0)
+        sys.exit(0)
 
     days_map = {"diario":1,"semanal":7,"quincenal":15,"mensual":30}
     days = days_map.get(frequency, 1)

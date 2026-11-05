@@ -634,6 +634,12 @@ function HeuristicView() {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (modeDraft && data?.mode === modeDraft) {
+      setModeDraft(null);
+    }
+  }, [data?.mode, modeDraft]);
   const mode = modeDraft ?? info.mode ?? "shadow";
   const protect = mode === "protect";
   const devices = info.devices || [];
@@ -711,7 +717,7 @@ function HeuristicView() {
           <PHead title="Alertas" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${alerts.length} dispositivo${alerts.length>1?"s":""}`}/>
           {alerts.map(d => (
             <div key={d.ip} style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", fontSize:13, color:"var(--text2)" }}>
-              Dispositivo <span style={{ fontFamily:"var(--mono)", color:"var(--title)" }}>{d.ip}</span> {protect ? "intentó resolver un dominio sospechoso (bloqueado)" : "intentó resolver un dominio sospechoso"}.
+              Dispositivo <span style={{ fontFamily:"var(--mono)", color:"var(--title)" }}>{d.name && d.name !== d.ip ? `${d.name} (${d.ip})` : d.ip}</span> {protect ? "intentó resolver un dominio sospechoso (bloqueado)" : "intentó resolver un dominio sospechoso"}.
             </div>
           ))}
         </Panel>

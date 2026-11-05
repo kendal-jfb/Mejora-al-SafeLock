@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 import re
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
@@ -50,7 +50,7 @@ app = FastAPI(title="SafeLock API", version=APP_VERSION)
 # una API sin autenticacion. 100.64.0.0/10 = CGNAT que usa Tailscale.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|"
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|"
                        r"192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|"
                        r"100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+)(:\d+)?$",
     allow_methods=["*"],
@@ -281,8 +281,9 @@ def send_email_alert(subject, recipient, ip, port, service):
         print("Alerta no enviada: SMTP sin configurar")
         return
     now = datetime.now()
-    if _last_email_sent and (now - _last_email_sent).seconds < 3600:
-        print(f"Email cooldown activo — faltan {3600 - (now - _last_email_sent).seconds}s")
+    if _last_email_sent and (now - _last_email_sent).total_seconds() < 3600:
+        faltan = int(3600 - (now - _last_email_sent).total_seconds())
+        print(f"Email cooldown activo — faltan {faltan}s")
         return
     _last_email_sent = now
     try:
@@ -386,7 +387,7 @@ def get_honeypot_events(background_tasks: BackgroundTasks):
                             if severity == "alta" and admin_email and alerts_enabled:
                                 if event_timestamp != _last_alerted_timestamp:
                                     now = datetime.now()
-                                    if not _last_email_sent or (now - _last_email_sent).seconds >= 3600:
+                                    if not _last_email_sent or (now - _last_email_sent).total_seconds() >= 3600:
                                         _last_alerted_timestamp = event_timestamp
                                         _last_email_sent = now
                                         background_tasks.add_task(
@@ -428,25 +429,32 @@ def get_devices():
 @app.get("/honeypot/graph")
 def get_honeypot_graph():
     try:
-        graph_data = []
-        for i in range(6, -1, -1):
-            h_label = f"-{i}h" if i > 0 else "ahora"
-            cutoff_start = datetime.now() - timedelta(hours=i+1)
-            cutoff_end   = datetime.now() - timedelta(hours=i)
-            count = 0
-            if os.path.exists(OPENCANARY_LOG):
-                with open(OPENCANARY_LOG, "r") as f:
-                    for line in f:
-                        try:
-                            entry = json.loads(line.strip())
-                            ts = entry.get("local_time", "")
-                            if ts:
-                                event_time = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
-                                if cutoff_start <= event_time <= cutoff_end:
-                                    count += 1
-                        except:
-                            continue
-            graph_data.append({"h": h_label, "v": count})
+        now = datetime.now()
+        intervals = [
+            (now - timedelta(hours=i+1), now - timedelta(hours=i), f"-{i}h" if i > 0 else "ahora")
+            for i in range(6, -1, -1)
+        ]
+        counts = [0] * len(intervals)
+
+        if os.path.exists(OPENCANARY_LOG):
+            with open(OPENCANARY_LOG, "r") as f:
+                for line in f:
+                    line_s = line.strip()
+                    if not line_s:
+                        continue
+                    try:
+                        entry = json.loads(line_s)
+                        ts = entry.get("local_time", "")
+                        if ts:
+                            event_time = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                            for idx, (c_start, c_end, _) in enumerate(intervals):
+                                if c_start <= event_time <= c_end:
+                                    counts[idx] += 1
+                                    break
+                    except Exception:
+                        continue
+
+        graph_data = [{"h": label, "v": counts[idx]} for idx, (_, _, label) in enumerate(intervals)]
         return {"graph": graph_data}
     except Exception as e:
         return {"graph": [], "error": str(e)}
