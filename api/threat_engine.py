@@ -33,11 +33,70 @@ else:
     PIHOLE_DB = os.path.join(BASE_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
 
 WHITELIST_DOMINIOS = {
+    # Google / Alphabet
     "google.com", "gstatic.com", "googleapis.com", "youtube.com",
-    "microsoft.com", "windows.com", "live.com", "msftncsi.com", "windowsupdate.com",
-    "apple.com", "icloud.com", "aaplimg.com",
-    "cloudflare.com", "amazon.com", "aws.amazon.com",
-    "tailscale.com", "github.com", "ntp.org"
+    "googlevideo.com", "ggpht.com", "googleusercontent.com",
+    # Microsoft / Windows
+    "microsoft.com", "windows.com", "live.com", "msftncsi.com",
+    "windowsupdate.com", "microsoftonline.com", "office.com",
+    "office365.com", "sharepoint.com", "outlook.com", "hotmail.com",
+    "skype.com", "xbox.com", "xboxlive.com", "azureedge.net",
+    # Apple
+    "apple.com", "icloud.com", "aaplimg.com", "mzstatic.com",
+    # Amazon / AWS / CDN
+    "amazon.com", "amazonaws.com", "aws.amazon.com",
+    "cloudfront.net", "akamaized.net", "akamai.net",
+    "fastly.net", "fastlylb.net", "edgecastcdn.net",
+    # Cloudflare / Infra
+    "cloudflare.com", "cloudflare-dns.com", "1dot1dot1dot1.cloudflare-dns.com",
+    # Tailscale / DevTools
+    "tailscale.com", "github.com", "ntp.org", "pool.ntp.org",
+    # Redes sociales / Comunicación
+    "facebook.com", "fbcdn.net", "instagram.com", "whatsapp.com",
+    "whatsapp.net", "twitter.com", "x.com", "twimg.com",
+    "discord.com", "discordapp.com", "discord.gg",
+    "telegram.org", "t.me", "tiktok.com", "tiktokcdn.com",
+    "snapchat.com", "linkedin.com",
+    # Streaming / Entretenimiento
+    "netflix.com", "nflximg.net", "nflxvideo.net",
+    "spotify.com", "spotifycdn.com", "scdn.co",
+    "twitch.tv", "twitchsvc.net", "jtvnw.net",
+    "youtube.com", "youtu.be",
+    "hulu.com", "disneyplus.com", "max.com",
+    # Gaming — Epic Games
+    "epicgames.com", "epicgames-dns.com", "unrealengine.com",
+    # Gaming — EA / FIFA / Origin
+    "ea.com", "easports.com", "origin.com", "eaassets-a.akamaihd.net",
+    # Gaming — Steam / Valve
+    "steampowered.com", "steam.com", "steamcommunity.com",
+    "steamcontent.com", "steamstatic.com", "steamstore-a.akamaihd.net",
+    # Gaming — Riot / LoL / Valorant
+    "riotgames.com", "leagueoflegends.com", "playvalorant.com",
+    "riotgames.net", "rgpub.io",
+    # Gaming — Activision / Blizzard / COD
+    "activision.com", "blizzard.com", "battle.net",
+    # Gaming — PlayStation / Sony
+    "playstation.com", "playstation.net", "sonyentertainmentnetwork.com",
+    "dualshockers.com", "dl.playstation.net",
+    # Gaming — Ubisoft
+    "ubisoft.com", "ubisoftconnect.com", "ubi.com",
+    # Gaming — Nintendo
+    "nintendo.com", "nintendo.net", "nintendolife.com",
+    # Gaming — Minecraft / Mojang / Microsoft Gaming
+    "minecraft.net", "mojang.com", "minecraftservices.com",
+    "xboxlive.com",
+    # Gaming — Roblox
+    "roblox.com", "rbxcdn.com", "robloxlabs.com",
+    # IoT / Smart TV / Dispositivos del hogar
+    "samsung.com", "samsungelectronics.com",
+    "lg.com", "lgelectronics.com",
+    "roku.com", "sonos.com", "philips.com",
+    # Otros CDNs y servicios comunes
+    "doubleclick.net", "googlesyndication.com",
+    "licdn.com", "pinimg.com",
+    "dropbox.com", "dropboxstatic.com",
+    "zoom.us", "zoomgov.com",
+    "slack.com", "slack-msgs.com",
 }
 
 EXTENSIONES_SOSPECHOSAS = {
@@ -268,29 +327,54 @@ def detectar_beaconing(ip, horas=1, umbral=20):
 def es_nombre_dga(dominio):
     """
     Determina si un dominio tiene características de generador aleatorio (DGA).
+
+    Lógica refinada para minimizar falsos positivos en marcas legítimas
+    con alta densidad de consonantes (blizzard, discord, twitch, spotify…):
+      - Umbral de consonantes más estricto (0.82) para nombres cortos (< 10 letras).
+      - 0.75 para nombres largos (>= 10 letras), que siguen siendo altos.
+      - TLD sospechoso + nombre largo (>= 9 letras) sigue siendo señal fuerte.
+      - Se verifica primero contra WHITELIST_DOMINIOS para evitar reanalizar marcas
+        ya conocidas.
     """
     if not dominio or len(dominio) < 5:
         return False
 
-    partes = dominio.lower().split(".")
+    dominio_lower = dominio.lower()
+
+    # Verificar contra whitelist completa (apice y subdominio)
+    for base in WHITELIST_DOMINIOS:
+        if dominio_lower == base or dominio_lower.endswith("." + base):
+            return False
+
+    partes = dominio_lower.split(".")
     if len(partes) < 2:
         return False
 
-    subnombre = partes[0]
+    # Usamos la segunda parte de nivel superior (SLD) para el análisis,
+    # ignorando subdominios (ej: "cdn3" de "cdn3.epicgames.com").
+    # El SLD es la parte justo antes del TLD.
+    sld = partes[-2] if len(partes) >= 2 else partes[0]
     tld = "." + partes[-1]
 
     tiene_tld_sospechoso = tld in EXTENSIONES_SOSPECHOSAS
 
-    letras = [c for c in subnombre if c.isalpha()]
-    if len(letras) >= 6:
+    letras = [c for c in sld if c.isalpha()]
+    n = len(letras)
+
+    if n >= 6:
         vocales = set("aeiou")
         consonantes = sum(1 for c in letras if c not in vocales)
-        ratio_consonantes = consonantes / len(letras)
+        ratio_consonantes = consonantes / n
 
-        if ratio_consonantes >= 0.70:
+        # Para nombres cortos (marca posible): umbral más estricto
+        if n < 10 and ratio_consonantes >= 0.82:
+            return True
+        # Para nombres largos (improbable que sea marca): umbral normal
+        if n >= 10 and ratio_consonantes >= 0.75:
             return True
 
-    if tiene_tld_sospechoso and len(subnombre) >= 7:
+    # TLD sospechoso + nombre SLD largo (>= 9 letras) → señal fuerte
+    if tiene_tld_sospechoso and len(sld) >= 9:
         return True
 
     return False
