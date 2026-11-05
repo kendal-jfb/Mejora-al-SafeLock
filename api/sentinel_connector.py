@@ -1,4 +1,4 @@
-﻿"""
+"""
 sentinel_connector.py
 =====================
 Conector de API y Reglas de Bloqueo en Pi-hole (Persona 2 - "El Conector").
@@ -59,6 +59,7 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     """
     Sincroniza los dominios detectados en la tabla `domainlist` de `gravity.db`
     bajo el comentario `[HEURISTIC_SHIELD]` y recarga Pi-hole solo si hubo cambios.
+    Asegura consultar y actualizar exclusivamente entradas de tipo bloqueo (type = 0).
     """
     if not os.path.exists(GRAVITY_DB):
         return []
@@ -67,55 +68,58 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     changed = False
 
     try:
-        conn = sqlite3.connect(GRAVITY_DB)
-        cursor = conn.cursor()
+        conn = sqlite3.connect(GRAVITY_DB, timeout=10.0)
+        try:
+            cursor = conn.cursor()
 
-        if not enable_block:
-            # Modo Sombra (Observador): desactivar bloqueos heurísticos sin borrarlos
-            cursor.execute(
-                "UPDATE domainlist SET enabled = 0 WHERE comment = ? AND enabled = 1",
-                (HEURISTIC_TAG,),
-            )
-            if cursor.rowcount > 0:
-                changed = True
-        else:
-            # Modo Escudo (Protección Activa): reactivar bloqueos previos y añadir nuevos
-            cursor.execute(
-                "UPDATE domainlist SET enabled = 1 WHERE comment = ? AND enabled = 0",
-                (HEURISTIC_TAG,),
-            )
-            if cursor.rowcount > 0:
-                changed = True
-
-            for dom in sorted(set(domains or [])):
-                dom_clean = str(dom or "").strip().lower().rstrip(".")
-                if not dom_clean:
-                    continue
-
-                row = cursor.execute(
-                    "SELECT id, enabled FROM domainlist WHERE domain = ? AND type = 0",
-                    (dom_clean,),
-                ).fetchone()
-
-                if row is None:
-                    cursor.execute(
-                        "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (0, ?, 1, ?)",
-                        (dom_clean, HEURISTIC_TAG),
-                    )
-                    applied_domains.append(dom_clean)
+            if not enable_block:
+                # Modo Sombra (Observador): desactivar bloqueos heurísticos sin borrarlos
+                cursor.execute(
+                    "UPDATE domainlist SET enabled = 0 WHERE comment = ? AND enabled = 1",
+                    (HEURISTIC_TAG,),
+                )
+                if cursor.rowcount > 0:
                     changed = True
-                else:
-                    if row[1] == 0:
-                        cursor.execute(
-                            "UPDATE domainlist SET enabled = 1, comment = ? WHERE id = ?",
-                            (HEURISTIC_TAG, row[0]),
-                        )
-                        changed = True
-                    applied_domains.append(dom_clean)
+            else:
+                # Modo Escudo (Protección Activa): reactivar bloqueos previos
+                cursor.execute(
+                    "UPDATE domainlist SET enabled = 1 WHERE comment = ? AND enabled = 0",
+                    (HEURISTIC_TAG,),
+                )
+                if cursor.rowcount > 0:
+                    changed = True
 
-        if changed:
-            conn.commit()
-        conn.close()
+                for dom in sorted(set(domains or [])):
+                    dom_clean = str(dom or "").strip().lower().rstrip(".")
+                    if not dom_clean:
+                        continue
+
+                    row = cursor.execute(
+                        "SELECT id, enabled, comment FROM domainlist WHERE domain = ? AND type = 0",
+                        (dom_clean,),
+                    ).fetchone()
+
+                    if row is None:
+                        cursor.execute(
+                            "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (0, ?, 1, ?)",
+                            (dom_clean, HEURISTIC_TAG),
+                        )
+                        applied_domains.append(dom_clean)
+                        changed = True
+                    else:
+                        if row[1] == 0:
+                            comment = HEURISTIC_TAG if not row[2] or row[2] == HEURISTIC_TAG else row[2]
+                            cursor.execute(
+                                "UPDATE domainlist SET enabled = 1, comment = ? WHERE id = ?",
+                                (comment, row[0]),
+                            )
+                            changed = True
+                        applied_domains.append(dom_clean)
+
+            if changed:
+                conn.commit()
+        finally:
+            conn.close()
 
         if changed:
             reload_pihole_dns()
@@ -130,7 +134,8 @@ def get_sentinel_status() -> dict:
     """
     Obtiene el análisis en tiempo real de Persona 1 (`analizar_red`),
     le inyecta el modo actual ('shadow' o 'protect') y, si está en modo
-    'protect', aplica automáticamente los bloqueos en Pi-hole.
+    'protect', aplica automáticamente los bloqueos en Pi-hole tanto para
+    dominios DGA como para conexiones maliciosas de Beaconing detectadas.
     """
     mode = get_sentinel_mode()
     reporte = analizar_red()
@@ -138,10 +143,13 @@ def get_sentinel_status() -> dict:
     # Inyectar el modo real elegido por el usuario en el panel
     reporte["mode"] = mode
 
-    # Recolectar todos los dominios DGA detectados en los dispositivos
+    # Recolectar todos los dominios sospechosos (DGA y Beaconing)
     dominios_sospechosos = []
     for dev in reporte.get("devices", []):
         for dom in dev.get("dga_domains", []):
+            if dom:
+                dominios_sospechosos.append(dom)
+        for dom in dev.get("beacon_domains", []):
             if dom:
                 dominios_sospechosos.append(dom)
 
@@ -171,7 +179,8 @@ def update_sentinel_mode(new_mode: str) -> dict:
         sync_pihole_blocks([], enable_block=False)
         return {"success": True, "mode": mode, "blocked_domains": []}
 
-    # Si se activa 'protect', escaneamos y bloqueamos de inmediato
+    # Si se activa 'protect', forzar actualización inmediata de análisis y reglas
+    analizar_red(forzar_refresco=True)
     reporte = get_sentinel_status()
     return {
         "success": True,

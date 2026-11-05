@@ -18,6 +18,7 @@ Responsabilidades (Persona 1):
 import os
 import sqlite3
 import json
+import time
 from datetime import datetime, timedelta
 
 # ==============================================================================
@@ -31,6 +32,34 @@ else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     NETALERTX_DB = os.path.join(BASE_DIR, "netalertx", "data", "db", "app.db")
     PIHOLE_DB = os.path.join(BASE_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
+
+
+def _conectar_sqlite(ruta_db: str, solo_lectura: bool = True):
+    """
+    Abre una conexión segura a SQLite.
+    Usa timeout de 10s y modo solo lectura (URI) para no generar contención
+    ni bloqueos contra procesos concurrentes (Pi-hole FTL / NetAlertX).
+    """
+    if not ruta_db or not os.path.exists(ruta_db):
+        return None
+    try:
+        if solo_lectura:
+            uri = f"file:{os.path.abspath(ruta_db)}?mode=ro"
+            return sqlite3.connect(uri, uri=True, timeout=10.0)
+        return sqlite3.connect(ruta_db, timeout=10.0)
+    except Exception as e:
+        print(f"[threat_engine] Error al conectar a {ruta_db}: {e}")
+        return None
+
+
+# Dominios de segundo nivel comunes para ccTLDs (.co.cr, .com.mx, .co.uk, etc.)
+CCTLD_SEGUNDO_NIVEL = {"com", "co", "net", "org", "edu", "gov", "gob", "fi", "ed", "mil"}
+
+# Sufijos de red local a ignorar en análisis de amenazas externas
+SUFIJOS_LOCALES = (
+    ".arpa", ".local", ".lan", ".localdomain", ".internal",
+    ".home", ".corp", ".test", "localhost", "pi.hole"
+)
 
 WHITELIST_DOMINIOS = {
     # Google / Alphabet
@@ -141,14 +170,14 @@ def obtener_dispositivos():
     Excluye IPs públicas, contenedores Docker internos (172.x) y loopback.
     Deduplica por IP para evitar dispositivos repetidos en el análisis.
     """
-    if not os.path.exists(NETALERTX_DB):
+    conn = _conectar_sqlite(NETALERTX_DB, solo_lectura=True)
+    if not conn:
         return []
 
     dispositivos = []
     ips_vistas = set()
 
     try:
-        conn = sqlite3.connect(NETALERTX_DB)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
@@ -161,7 +190,6 @@ def obtener_dispositivos():
             ORDER BY devLastConnection DESC
         """
         filas = cursor.execute(consulta).fetchall()
-        conn.close()
 
         for fila in filas:
             ip = fila["devLastIP"]
@@ -188,6 +216,8 @@ def obtener_dispositivos():
 
     except Exception as e:
         print(f"[threat_engine] Error al leer NetAlertX: {e}")
+    finally:
+        conn.close()
 
     return dispositivos
 
@@ -200,14 +230,14 @@ def obtener_metricas_dns(ip, horas=24):
     Obtiene estadísticas generales de actividad DNS para una IP:
     total de consultas y porcentaje de dominios inexistentes (NXDOMAIN).
     """
-    if not os.path.exists(PIHOLE_DB):
+    conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if not conn:
         return 0, 0.0
 
     total_queries = 0
     nxdomain_rate = 0.0
 
     try:
-        conn = sqlite3.connect(PIHOLE_DB)
         cursor = conn.cursor()
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
@@ -225,9 +255,10 @@ def obtener_metricas_dns(ip, horas=24):
             """, (ip, limite_tiempo)).fetchone()[0]
             nxdomain_rate = round(nx_count / total_queries, 2)
 
-        conn.close()
     except Exception as e:
         print(f"[threat_engine] Error al obtener métricas DNS para {ip}: {e}")
+    finally:
+        conn.close()
 
     return total_queries, nxdomain_rate
 
@@ -237,14 +268,14 @@ def contar_bloqueados(ip, horas=24):
     Consulta en Pi-hole cuántas peticiones de esta IP fueron bloqueadas
     en las últimas 'horas' y extrae ejemplos de dominios bloqueados.
     """
-    if not os.path.exists(PIHOLE_DB):
+    conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if not conn:
         return 0, []
 
     total_bloqueos = 0
     dominios_bloqueados = []
 
     try:
-        conn = sqlite3.connect(PIHOLE_DB)
         cursor = conn.cursor()
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
@@ -270,9 +301,10 @@ def contar_bloqueados(ip, horas=24):
         filas = cursor.execute(query_dominios, (ip, limite_tiempo)).fetchall()
         dominios_bloqueados = [f[0] for f in filas if f[0]]
 
-        conn.close()
     except Exception as e:
         print(f"[threat_engine] Error al contar bloqueos para {ip}: {e}")
+    finally:
+        conn.close()
 
     return total_bloqueos, dominios_bloqueados
 
@@ -284,14 +316,15 @@ def detectar_beaconing(ip, horas=1, umbral=20):
     """
     Detecta si el dispositivo realiza demasiadas peticiones al mismo dominio
     en un intervalo corto (comportamiento típico de malware 'llamando a casa').
+    Excluye dominios locales, mDNS, consultas reversas y sufijos LAN.
     """
-    if not os.path.exists(PIHOLE_DB):
+    conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if not conn:
         return []
 
     sospechosos = []
 
     try:
-        conn = sqlite3.connect(PIHOLE_DB)
         cursor = conn.cursor()
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
@@ -305,18 +338,27 @@ def detectar_beaconing(ip, horas=1, umbral=20):
             ORDER BY repeticiones DESC
         """
         filas = cursor.execute(consulta, (ip, limite_tiempo, umbral)).fetchall()
-        conn.close()
 
         for dominio, veces in filas:
-            if not dominio or dominio.endswith(".arpa") or dominio == "localhost":
+            if not dominio:
                 continue
 
-            es_seguro = any(dominio == base or dominio.endswith("." + base) for base in WHITELIST_DOMINIOS)
+            dom_clean = dominio.strip().lower().rstrip(".")
+            if not dom_clean or "." not in dom_clean:
+                continue
+
+            # Ignorar nombres locales y dominios de broadcast
+            if dom_clean.endswith(SUFIJOS_LOCALES):
+                continue
+
+            es_seguro = any(dom_clean == base or dom_clean.endswith("." + base) for base in WHITELIST_DOMINIOS)
             if not es_seguro:
-                sospechosos.append({"dominio": dominio, "veces": veces})
+                sospechosos.append({"dominio": dom_clean, "veces": veces})
 
     except Exception as e:
         print(f"[threat_engine] Error al detectar beaconing para {ip}: {e}")
+    finally:
+        conn.close()
 
     return sospechosos
 
@@ -328,33 +370,40 @@ def es_nombre_dga(dominio):
     """
     Determina si un dominio tiene características de generador aleatorio (DGA).
 
-    Lógica refinada para minimizar falsos positivos en marcas legítimas
-    con alta densidad de consonantes (blizzard, discord, twitch, spotify…):
-      - Umbral de consonantes más estricto (0.82) para nombres cortos (< 10 letras).
-      - 0.75 para nombres largos (>= 10 letras), que siguen siendo altos.
-      - TLD sospechoso + nombre largo (>= 9 letras) sigue siendo señal fuerte.
-      - Se verifica primero contra WHITELIST_DOMINIOS para evitar reanalizar marcas
-        ya conocidas.
+    Lógica robusta:
+      - Limpia espacios y puntos finales DNS (ej: 'google.com.').
+      - Ignora nombres locales sin punto y sufijos LAN (.local, .lan, .arpa).
+      - Maneja adecuadamente ccTLDs de dos partes (.co.cr, .com.mx, .co.uk).
+      - Umbral de consonantes escalonado (0.82 para SLD < 10, 0.75 para SLD >= 10).
+      - TLD sospechoso + SLD largo (>= 9 letras) como señal fuerte.
+      - Validación previa contra WHITELIST_DOMINIOS.
     """
-    if not dominio or len(dominio) < 5:
+    if not dominio:
         return False
 
-    dominio_lower = dominio.lower()
+    dominio_clean = dominio.strip().lower().rstrip(".")
+    if len(dominio_clean) < 5 or "." not in dominio_clean:
+        return False
 
-    # Verificar contra whitelist completa (apice y subdominio)
+    if dominio_clean.endswith(SUFIJOS_LOCALES):
+        return False
+
+    # Verificar contra whitelist completa (ápice y subdominio)
     for base in WHITELIST_DOMINIOS:
-        if dominio_lower == base or dominio_lower.endswith("." + base):
+        if dominio_clean == base or dominio_clean.endswith("." + base):
             return False
 
-    partes = dominio_lower.split(".")
+    partes = dominio_clean.split(".")
     if len(partes) < 2:
         return False
 
-    # Usamos la segunda parte de nivel superior (SLD) para el análisis,
-    # ignorando subdominios (ej: "cdn3" de "cdn3.epicgames.com").
-    # El SLD es la parte justo antes del TLD.
-    sld = partes[-2] if len(partes) >= 2 else partes[0]
-    tld = "." + partes[-1]
+    # Manejo de ccTLDs de dos partes (ej: .co.cr, .com.mx, .co.uk)
+    if len(partes) >= 3 and partes[-2] in CCTLD_SEGUNDO_NIVEL and len(partes[-1]) == 2:
+        sld = partes[-3]
+        tld = f".{partes[-2]}.{partes[-1]}"
+    else:
+        sld = partes[-2]
+        tld = "." + partes[-1]
 
     tiene_tld_sospechoso = tld in EXTENSIONES_SOSPECHOSAS
 
@@ -385,13 +434,13 @@ def buscar_dominios_dga(ip, horas=24):
     Revisa los dominios consultados por la IP y detecta cuáles tienen
     patrones típicos de algoritmos DGA.
     """
-    if not os.path.exists(PIHOLE_DB):
+    conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if not conn:
         return []
 
     dga_detectados = []
 
     try:
-        conn = sqlite3.connect(PIHOLE_DB)
         cursor = conn.cursor()
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
@@ -403,15 +452,16 @@ def buscar_dominios_dga(ip, horas=24):
             LIMIT 200
         """
         filas = cursor.execute(consulta, (ip, limite_tiempo)).fetchall()
-        conn.close()
 
         for fila in filas:
             dom = fila[0]
             if dom and es_nombre_dga(dom):
-                dga_detectados.append(dom)
+                dga_detectados.append(dom.strip().rstrip("."))
 
     except Exception as e:
         print(f"[threat_engine] Error al buscar DGA para {ip}: {e}")
+    finally:
+        conn.close()
 
     return dga_detectados[:5]
 
@@ -423,7 +473,7 @@ def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga, nxdomain_ra
     """
     Calcula una puntuación y devuelve tanto las etiquetas en español
     como los códigos estándar esperados por el frontend ('green', 'yellow', 'red',
-    y reasons: ['dga', 'beaconing', 'nxdomain']).
+    y reasons: ['dga', 'beaconing', 'nxdomain', 'blocked']).
     """
     puntuacion = 0
     motivos_espanol = []
@@ -435,6 +485,7 @@ def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga, nxdomain_ra
             puntuacion += 40
         else:
             puntuacion += 25
+        reasons_codes.append("blocked")
         ejemplos_txt = f" (ej: {', '.join(ejemplos_bloqueados)})" if ejemplos_bloqueados else ""
         motivos_espanol.append(f"Pi-hole bloqueó {bloqueados} intento(s) de conexión a sitios restringidos{ejemplos_txt}.")
 
@@ -476,12 +527,24 @@ def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga, nxdomain_ra
 # ==============================================================================
 # FUNCIÓN PRINCIPAL EXPORTABLE (Consumida por Persona 2 en api/main.py)
 # ==============================================================================
-def analizar_red():
+_CACHE_REPORTE = None
+_CACHE_TIMESTAMP = 0.0
+CACHE_TTL_SEGUNDOS = 15.0
+
+
+def analizar_red(forzar_refresco=False):
     """
     Escanea todos los dispositivos y genera el reporte completo.
     Estructurado para satisfacer tanto el contrato original como la vista Heurística
     creada en React por Persona 3.
+    Incorpora caché en memoria con TTL de 15s para evitar sobrecarga de lecturas
+    recurrentes a SQLite/eMMC en el SoC RK3566.
     """
+    global _CACHE_REPORTE, _CACHE_TIMESTAMP
+    ahora = time.time()
+    if not forzar_refresco and _CACHE_REPORTE is not None and (ahora - _CACHE_TIMESTAMP < CACHE_TTL_SEGUNDOS):
+        return _CACHE_REPORTE
+
     dispositivos_raw = obtener_dispositivos()
     resultado_dispositivos = []
 
@@ -513,8 +576,9 @@ def analizar_red():
             "mac": mac,
             "name": nombre,
             "state": state,                # 'green', 'yellow', 'red'
-            "reasons": reasons,            # ['beaconing', 'dga', 'nxdomain']
+            "reasons": reasons,            # ['beaconing', 'dga', 'nxdomain', 'blocked']
             "dga_domains": dominios_dga,
+            "beacon_domains": [b["dominio"] for b in sospechosos_beaconing],
             "queries": total_queries,
             "nxdomain_rate": nxdomain_rate,
 
@@ -525,7 +589,7 @@ def analizar_red():
             "motivos": motivos
         })
 
-    return {
+    reporte = {
         "mode": "shadow",  # Modo por defecto (Sombra / Auditoría)
         "last_run": datetime.now().isoformat(),
         "analizado_en": datetime.now().isoformat(),
@@ -533,6 +597,10 @@ def analizar_red():
         "devices": resultado_dispositivos,      # Esperado por React
         "dispositivos": resultado_dispositivos   # Esperado por contrato
     }
+
+    _CACHE_REPORTE = reporte
+    _CACHE_TIMESTAMP = ahora
+    return reporte
 
 
 # ==============================================================================

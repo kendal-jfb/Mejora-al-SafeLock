@@ -614,6 +614,7 @@ const SENTINEL_REASON = {
   dga:       "Dominios con nombre aleatorio (posible DGA)",
   beaconing: "Consultas a intervalos idénticos (beaconing)",
   nxdomain:  "Muchas consultas a dominios inexistentes",
+  blocked:   "Consultas a sitios restringidos en listas negras",
 };
 
 function SemaforoChip({ state }) {
@@ -719,6 +720,11 @@ function HeuristicView() {
       <Panel>
         <PHead title="Semáforo por dispositivo" icon={<Icon.Monitor s={14}/>} right={`${devices.length} dispositivos`}/>
         <div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
+          {devices.length === 0 && (
+            <div style={{ padding:24, textAlign:"center", color:"var(--text3)", fontSize:13, gridColumn:"1 / -1" }}>
+              No se detectaron dispositivos activos en la red local aún.
+            </div>
+          )}
           {devices.map(d => {
             const s = SENTINEL_STATE[d.state] || SENTINEL_STATE.green;
             return (
@@ -739,6 +745,12 @@ function HeuristicView() {
                 {d.dga_domains?.length > 0 && (
                   <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:4 }}>
                     {d.dga_domains.map(dom => <span key={dom} style={{ fontFamily:"var(--mono)", fontSize:11, color:s.color, wordBreak:"break-all" }}>{dom}</span>)}
+                  </div>
+                )}
+                {d.beacon_domains?.length > 0 && (
+                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
+                    <span style={{ fontSize:10, color:"var(--text4)", textTransform:"uppercase" }}>Beaconing a:</span>
+                    {d.beacon_domains.map(dom => <span key={dom} style={{ fontFamily:"var(--mono)", fontSize:11, color:s.color, wordBreak:"break-all" }}>{dom}</span>)}
                   </div>
                 )}
                 <div style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)", marginTop:12 }}>
