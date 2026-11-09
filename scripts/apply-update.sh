@@ -158,6 +158,15 @@ fi
 NEW=$(git rev-parse HEAD)
 CHANGED_FILES=$(git diff --name-only "$PREV" "$NEW")
 
+# Sincronizar hacia /opt/safelock/current si el equipo fue migrado a la estructura OTA
+if [ -d /opt/safelock/current ]; then
+    mkdir -p /opt/safelock/current/api /opt/safelock/current/portal_dist /opt/safelock/current/scripts
+    cp -rf "$DIR"/api/* /opt/safelock/current/api/ 2>/dev/null || true
+    cp -rf "$DIR"/portal/dist/* /opt/safelock/current/portal_dist/ 2>/dev/null || true
+    cp -rf "$DIR"/scripts/* /opt/safelock/current/scripts/ 2>/dev/null || true
+    echo "[$DATE] Archivos sincronizados a /opt/safelock/current" >> "$LOG"
+fi
+
 if echo "$CHANGED_FILES" | grep -Eq '^(api/|scripts/|systemd/)'; then
     systemctl restart safelock-api
     echo "[$DATE] safelock-api reiniciado" >> "$LOG"
