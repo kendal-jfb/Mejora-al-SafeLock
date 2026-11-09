@@ -61,7 +61,14 @@ app.add_middleware(
 # Los datos (bind mounts de docker, bases de netalertx/pihole) siguen viviendo
 # donde los dejo el aprovisionamiento de fabrica. El codigo se mueve entre
 # releases, los datos no.
-DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "/root/safeLock_SoC")
+DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
+if not DATA_DIR:
+    if os.path.exists("/root/safeLock_SoC/pihole"):
+        DATA_DIR = "/root/safeLock_SoC"
+    elif os.path.exists("/data/pihole"):
+        DATA_DIR = "/data"
+    else:
+        DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 NETALERTX_DB = f"{DATA_DIR}/netalertx/data/db/app.db"
 OPENCANARY_LOG = f"{DATA_DIR}/netalertx/data/opencanary/opencanary.log"
@@ -673,6 +680,45 @@ def get_pihole_stats():
         }
     except Exception as e:
         return {"error": str(e), "ads_blocked_today": 0, "dns_queries_today": 0, "ads_percentage_today": 0, "graph": []}
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.get("/pihole/recent-blocks")
+def get_recent_blocks():
+    """Retorna los últimos dominios bloqueados por Pi-hole con cliente y marca de tiempo."""
+    if not os.path.exists(PIHOLE_DB):
+        return {"total": 0, "blocks": []}
+    conn = None
+    try:
+        uri = f"file:{os.path.abspath(PIHOLE_DB)}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        curr = conn.cursor()
+        rows = curr.execute("""
+            SELECT domain, client, timestamp, status
+            FROM queries
+            WHERE status IN (1, 4, 5, 9, 10, 11)
+            ORDER BY timestamp DESC
+            LIMIT 25
+        """).fetchall()
+        blocks = []
+        for r in rows:
+            ts_val = r["timestamp"]
+            try:
+                dt_str = datetime.fromtimestamp(float(ts_val)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                dt_str = str(ts_val)
+            blocks.append({
+                "domain": r["domain"],
+                "client": r["client"],
+                "timestamp": dt_str,
+                "status": r["status"]
+            })
+        return {"total": len(blocks), "blocks": blocks}
+    except Exception as e:
+        return {"error": str(e), "total": 0, "blocks": []}
     finally:
         if conn:
             conn.close()

@@ -241,7 +241,14 @@ def get_sentinel_status() -> dict:
     else:
         bloqueados = []
 
-    reporte["blocked_domains"] = bloqueados
+    # Dominios bloqueados totales visibles en el panel (Heurísticos + Pi-hole)
+    dominios_bloq_dispositivos = []
+    for dev in reporte.get("devices", []):
+        for b in dev.get("blocked_domains", []):
+            if b:
+                dominios_bloq_dispositivos.append(b)
+
+    reporte["blocked_domains"] = sorted(list(set(bloqueados + dominios_bloq_dispositivos)))
     return reporte
 
 
@@ -294,6 +301,9 @@ def get_sentinel_honeypot_alerts() -> list:
 
             if dga:
                 desc = f"Dominio DGA {accion} ({dga[0]})"
+            elif dev.get("blocked_domains"):
+                bloq_ej = dev["blocked_domains"][0]
+                desc = f"Sitio malicioso {accion} ({bloq_ej})"
             else:
                 motivos = dev.get("motivos", [])
                 desc = motivos[0] if motivos else f"Actividad anómala {accion} en red"

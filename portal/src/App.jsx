@@ -313,6 +313,7 @@ function PremiumModal({ isOpen, onClose }) {
 function Dashboard({ premiumActive, onOpenPremium, onGoPremium }) {
   const { data: summary, error: sumError } = useAPI("/summary", 15000);
   const { data: honeypot } = useAPI("/honeypot", 15000);
+  const { data: recentBlocks } = useAPI("/pihole/recent-blocks", 15000);
   const { data: devices  } = useAPI("/devices",  30000);
   const { data: status   } = useAPI("/customer-status", 10000);
 
@@ -437,25 +438,44 @@ const lineData = useMemo(() => {
 
       <div className="main-grid">
         <Panel>
-          <PHead title="Sensor de intrusiones" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${honeypot?.total||0} eventos`}/>
-          {alerts.length===0 ? (
+          <PHead title="Sensor de intrusiones y bloqueos" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${(honeypot?.total||0) + (recentBlocks?.total||0)} eventos`}/>
+          {alerts.length===0 && (!recentBlocks?.blocks || recentBlocks.blocks.length===0) ? (
             <div style={{ padding:"40px 20px", textAlign:"center" }}>
               <div style={{ display:"flex", justifyContent:"center", marginBottom:12, color:"var(--teal-brt)" }}><Icon.Shield s={32}/></div>
               <div style={{ fontFamily:"var(--mono)", fontSize:12, color:"var(--text3)", letterSpacing:".1em" }}>Sin actividad sospechosa</div>
             </div>
-          ) : alerts.map((e,i) => (
-            <div key={i} style={{ display:"grid", gridTemplateColumns:"auto 1fr auto", gap:14, alignItems:"start", padding:"13px 16px", borderBottom:"1px solid var(--border)", borderLeft:`4px solid ${sevMap[e.severity]||"var(--text3)"}`, background:sevBg[e.severity]||"transparent" }}>
-              <span style={{ display:"flex", color:sevMap[e.severity], marginTop:2 }}>{e.severity==="alta"?<Icon.Alert s={16}/>:<Icon.Activity s={16}/>}</span>
-              <div>
-                <div style={{ fontSize:13, color:"var(--title)", fontWeight:500, marginBottom:4 }}>{e.description}</div>
-                <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text2)" }}>Origen {e.src_ip} · {e.service}</div>
-              </div>
-              <div style={{ textAlign:"right" }}>
-                <SevChip sev={e.severity}/>
-                <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", marginTop:4 }}>{timeAgo(e.timestamp)}</div>
-              </div>
-            </div>
-          ))}
+          ) : (
+            <>
+              {alerts.map((e,i) => (
+                <div key={i} style={{ display:"grid", gridTemplateColumns:"auto 1fr auto", gap:14, alignItems:"start", padding:"13px 16px", borderBottom:"1px solid var(--border)", borderLeft:`4px solid ${sevMap[e.severity]||"var(--text3)"}`, background:sevBg[e.severity]||"transparent" }}>
+                  <span style={{ display:"flex", color:sevMap[e.severity], marginTop:2 }}>{e.severity==="alta"?<Icon.Alert s={16}/>:<Icon.Activity s={16}/>}</span>
+                  <div>
+                    <div style={{ fontSize:13, color:"var(--title)", fontWeight:500, marginBottom:4 }}>{e.description}</div>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--text2)" }}>Origen {e.src_ip} · {e.service}</div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <SevChip sev={e.severity}/>
+                    <div style={{ fontFamily:"var(--mono)", fontSize:9, color:"var(--text4)", marginTop:4 }}>{timeAgo(e.timestamp)}</div>
+                  </div>
+                </div>
+              ))}
+              {recentBlocks?.blocks?.length > 0 && (
+                <div style={{ borderTop:"1px solid var(--border)", padding:"12px 16px", background:"var(--bg2)" }}>
+                  <div style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--red)", textTransform:"uppercase", letterSpacing:".08em", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+                    <Dot color="var(--red)"/> Amenazas Bloqueadas Recientemente:
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                    {recentBlocks.blocks.slice(0, 5).map((b, idx) => (
+                      <div key={idx} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", fontSize:12, padding:"4px 8px", background:"var(--bg3)", borderRadius:4, border:"1px solid var(--border)" }}>
+                        <span style={{ fontFamily:"var(--mono)", color:"var(--red)" }}>🚫 {b.domain}</span>
+                        <span style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text3)" }}>{b.client} · {timeAgo(b.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </Panel>
 
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
@@ -736,7 +756,7 @@ function HeuristicView() {
         <Panel error={alerts.some(d => d.state === "red")}>
           <PHead title="Alertas de Seguridad" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${alerts.length} dispositivo${alerts.length>1?"s":""}`}/>
           {alerts.map(d => {
-            const detected = Array.from(new Set([...(d.dga_domains || []), ...(d.beacon_domains || [])]));
+            const detected = Array.from(new Set([...(d.dga_domains || []), ...(d.beacon_domains || []), ...(d.blocked_domains || [])]));
             return (
               <div key={d.ip} style={{ padding:"14px 18px", borderBottom:"1px solid var(--border)", fontSize:13, color:"var(--text2)" }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
@@ -753,7 +773,7 @@ function HeuristicView() {
                       return (
                         <div key={dom} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--bg2)", padding:"6px 12px", borderRadius:6, border:"1px solid var(--border)", flexWrap:"wrap", gap:8 }}>
                           <span style={{ fontFamily:"var(--mono)", fontSize:12, color: isAllowed ? "var(--teal-brt)" : "var(--red)" }}>
-                            {dom} {isAllowed ? "✓ (Permitido)" : ""}
+                            {dom} {isAllowed ? "✓ (Permitido)" : "🚫 (Bloqueado)"}
                           </span>
                           {!isAllowed ? (
                             <button
@@ -785,6 +805,47 @@ function HeuristicView() {
               </div>
             );
           })}
+        </Panel>
+      )}
+
+      {info.blocked_domains && info.blocked_domains.length > 0 && (
+        <Panel>
+          <PHead title="Dominios Bloqueados en Tiempo Real" titleColor="var(--red)" icon={<Icon.Shield s={14} c="var(--red)"/>} right={`${info.blocked_domains.length} activo${info.blocked_domains.length>1?"s":""}`}/>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            {info.blocked_domains.map(dom => {
+              const isAllowed = Boolean(unblockedDomains[dom] || (info.user_whitelist && info.user_whitelist.includes(dom)));
+              const isPending = unblockingDomain === dom;
+              return (
+                <div key={dom} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--bg3)", padding:"10px 14px", borderRadius:6, border:"1px solid var(--border)", flexWrap:"wrap", gap:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <Dot color="var(--red)" pulse/>
+                    <span style={{ fontFamily:"var(--mono)", fontSize:13, color:"var(--title)" }}>{dom}</span>
+                    <span style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--red)", background:"var(--red-dim)", border:"1px solid rgba(239,68,68,0.3)", padding:"2px 6px", borderRadius:3, textTransform:"uppercase" }}>Bloqueado</span>
+                  </div>
+                  {!isAllowed ? (
+                    <button
+                      disabled={isPending}
+                      onClick={() => allowDomain(dom)}
+                      style={{
+                        background:"var(--bg2)",
+                        color:"var(--teal-brt)",
+                        border:"1px solid var(--teal-brt)",
+                        borderRadius:4,
+                        padding:"5px 12px",
+                        fontSize:11,
+                        fontWeight:600,
+                        cursor: isPending ? "wait" : "pointer"
+                      }}
+                    >
+                      {isPending ? "Desbloqueando…" : "Permitir / Desbloquear"}
+                    </button>
+                  ) : (
+                    <span style={{ fontSize:11, color:"var(--teal-brt)", fontWeight:600 }}>Desbloqueado</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </Panel>
       )}
 
@@ -822,6 +883,18 @@ function HeuristicView() {
                   <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
                     <span style={{ fontSize:10, color:"var(--text4)", textTransform:"uppercase" }}>Beaconing a:</span>
                     {d.beacon_domains.map(dom => <span key={dom} style={{ fontFamily:"var(--mono)", fontSize:11, color:s.color, wordBreak:"break-all" }}>{dom}</span>)}
+                  </div>
+                )}
+                {d.blocked_domains?.length > 0 && (
+                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
+                    <span style={{ fontSize:10, color:"var(--red)", textTransform:"uppercase", fontWeight:600 }}>
+                      Bloqueados ({d.total_bloqueados || d.blocked_domains.length}):
+                    </span>
+                    {d.blocked_domains.map(dom => (
+                      <span key={dom} style={{ fontFamily:"var(--mono)", fontSize:11, color:"var(--red)", wordBreak:"break-all" }}>
+                        🚫 {dom}
+                      </span>
+                    ))}
                   </div>
                 )}
                 <div style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)", marginTop:12 }}>

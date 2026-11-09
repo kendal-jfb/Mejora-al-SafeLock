@@ -244,6 +244,34 @@ def obtener_dispositivos():
     finally:
         conn.close()
 
+    # Descubrimiento complementario: clientes LAN activos en Pi-hole
+    conn_pi = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if conn_pi:
+        try:
+            cursor_pi = conn_pi.cursor()
+            limite_tiempo = int((datetime.now() - timedelta(hours=24)).timestamp())
+            filas_pi = cursor_pi.execute(
+                "SELECT DISTINCT client FROM queries WHERE timestamp > ?",
+                (limite_tiempo,)
+            ).fetchall()
+            for fila_pi in filas_pi:
+                c_ip = fila_pi[0]
+                if not c_ip or not _es_ip_lan(c_ip):
+                    continue
+                if c_ip in ips_vistas:
+                    continue
+                ips_vistas.add(c_ip)
+                dispositivos.append({
+                    "ip": c_ip,
+                    "nombre": f"Dispositivo ({c_ip})",
+                    "mac": "Detectado vía DNS",
+                    "vendor": "Red Local",
+                })
+        except Exception as e_pi:
+            print(f"[threat_engine] Error al descubrir clientes en Pi-hole: {e_pi}")
+        finally:
+            conn_pi.close()
+
     return dispositivos
 
 
@@ -617,6 +645,8 @@ def analizar_red(forzar_refresco=False):
             "reasons": reasons,            # ['beaconing', 'dga', 'nxdomain', 'blocked']
             "dga_domains": dominios_dga,
             "beacon_domains": [b["dominio"] for b in sospechosos_beaconing],
+            "blocked_domains": ejemplos_bloq,
+            "total_bloqueados": total_bloqueados,
             "queries": total_queries,
             "nxdomain_rate": nxdomain_rate,
 
