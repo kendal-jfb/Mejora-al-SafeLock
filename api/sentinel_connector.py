@@ -15,7 +15,7 @@ Responsabilidades:
 import os
 import sqlite3
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from packs import load_full_config, save_full_config
 from threat_engine import analizar_red
