@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, LineChart, Line, CartesianGrid
 } from "recharts";
 
-const API = "http://" + window.location.hostname + ":8090";
+const API = window.location.protocol + "//" + window.location.hostname + ":8090";
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────────
 const Icon = {
@@ -634,6 +634,8 @@ function HeuristicView() {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [unblockingDomain, setUnblockingDomain] = useState(null);
+  const [unblockedDomains, setUnblockedDomains] = useState({});
 
   useEffect(() => {
     if (modeDraft && data?.mode === modeDraft) {
@@ -657,6 +659,24 @@ function HeuristicView() {
     } finally { setSaving(false); }
   };
   const onToggle = () => (protect ? applyMode("shadow") : setConfirming(true));
+
+  const allowDomain = async (dom) => {
+    setUnblockingDomain(dom);
+    setMsg("");
+    try {
+      const r = await fetch(`${API}/sentinel/block`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: dom, enabled: false }),
+      });
+      if (!r.ok) throw new Error();
+      setUnblockedDomains(prev => ({ ...prev, [dom]: true }));
+    } catch {
+      setMsg(`No se pudo permitir ${dom}. Intente de nuevo.`);
+    } finally {
+      setUnblockingDomain(null);
+    }
+  };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
@@ -714,12 +734,57 @@ function HeuristicView() {
 
       {alerts.length > 0 && (
         <Panel error={alerts.some(d => d.state === "red")}>
-          <PHead title="Alertas" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${alerts.length} dispositivo${alerts.length>1?"s":""}`}/>
-          {alerts.map(d => (
-            <div key={d.ip} style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", fontSize:13, color:"var(--text2)" }}>
-              Dispositivo <span style={{ fontFamily:"var(--mono)", color:"var(--title)" }}>{d.name && d.name !== d.ip ? `${d.name} (${d.ip})` : d.ip}</span> {protect ? "intentó resolver un dominio sospechoso (bloqueado)" : "intentó resolver un dominio sospechoso"}.
-            </div>
-          ))}
+          <PHead title="Alertas de Seguridad" titleColor="var(--red)" icon={<Icon.Alert s={14} c="var(--red)"/>} right={`${alerts.length} dispositivo${alerts.length>1?"s":""}`}/>
+          {alerts.map(d => {
+            const detected = Array.from(new Set([...(d.dga_domains || []), ...(d.beacon_domains || [])]));
+            return (
+              <div key={d.ip} style={{ padding:"14px 18px", borderBottom:"1px solid var(--border)", fontSize:13, color:"var(--text2)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8 }}>
+                  <div>
+                    Dispositivo <span style={{ fontFamily:"var(--mono)", color:"var(--title)", fontWeight:600 }}>{d.name && d.name !== d.ip ? `${d.name} (${d.ip})` : d.ip}</span> {protect ? "intentó resolver un dominio sospechoso (bloqueado por SafeLock)" : "intentó resolver un dominio sospechoso (detectado)"}.
+                  </div>
+                  <SemaforoChip state={d.state}/>
+                </div>
+                {detected.length > 0 && (
+                  <div style={{ marginTop:10, display:"flex", flexDirection:"column", gap:6 }}>
+                    {detected.map(dom => {
+                      const isAllowed = Boolean(unblockedDomains[dom] || (info.user_whitelist && info.user_whitelist.includes(dom)));
+                      const isPending = unblockingDomain === dom;
+                      return (
+                        <div key={dom} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--bg2)", padding:"6px 12px", borderRadius:6, border:"1px solid var(--border)", flexWrap:"wrap", gap:8 }}>
+                          <span style={{ fontFamily:"var(--mono)", fontSize:12, color: isAllowed ? "var(--teal-brt)" : "var(--red)" }}>
+                            {dom} {isAllowed ? "✓ (Permitido)" : ""}
+                          </span>
+                          {!isAllowed ? (
+                            <button
+                              disabled={isPending}
+                              onClick={() => allowDomain(dom)}
+                              style={{
+                                background:"var(--bg3)",
+                                color:"var(--teal-brt)",
+                                border:"1px solid var(--teal-brt)",
+                                borderRadius:4,
+                                padding:"4px 10px",
+                                fontSize:11,
+                                fontWeight:600,
+                                cursor: isPending ? "wait" : "pointer"
+                              }}
+                            >
+                              {isPending ? "Desbloqueando…" : "Permitir / Desbloquear"}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize:11, color:"var(--teal-brt)", fontWeight:600 }}>
+                              Desbloqueado permanente
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </Panel>
       )}
 

@@ -34,16 +34,21 @@ mkdir -p /var/lib/safelock
 echo "$PREV" > /var/lib/safelock/previous_commit
 mkdir -p "$BACKUP_ROOT"
 
-git fetch origin master >> "$LOG" 2>&1
+git fetch origin main master >> "$LOG" 2>&1 || git fetch origin >> "$LOG" 2>&1
+TARGET_BRANCH="master"
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+    TARGET_BRANCH="main"
+fi
+
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/master)
+REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
 BAD_COMMIT_FILE="/var/lib/safelock/bad_commit"
 # Anti-oscilacion: si el remoto es un commit ya marcado como malo (fallo health-check
 # en un ciclo previo), NO lo reapliques cada 10 min; quedate en el ultimo bueno hasta
-# que origin/master avance a un commit distinto.
+# que el remoto avance a un commit distinto.
 if [ "$LOCAL" != "$REMOTE" ] && [ -f "$BAD_COMMIT_FILE" ] && [ "$REMOTE" = "$(cat "$BAD_COMMIT_FILE")" ]; then
-    echo "[$DATE] origin/master ($REMOTE) marcado como MALO; se omite hasta nuevo commit." >> "$LOG"
+    echo "[$DATE] origin/$TARGET_BRANCH ($REMOTE) marcado como MALO; se omite hasta nuevo commit." >> "$LOG"
     exit 0
 fi
 
@@ -61,7 +66,7 @@ backup_conflicting_untracked() {
             echo "[$DATE] Untracked conflict movido a backup: $path" >> "$LOG"
             moved=1
         fi
-    done < <(git ls-tree -r --name-only origin/master)
+    done < <(git ls-tree -r --name-only "origin/$TARGET_BRANCH")
 
     if [ "$moved" -eq 1 ]; then
         echo "[$DATE] Backup untracked creado en $backup_dir" >> "$LOG"
@@ -74,9 +79,9 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     echo "[$DATE] Sin cambios en repo; no se reaplica config (anti-churn eMMC)." >> "$LOG"
     CHANGED=0
 else
-    echo "[$DATE] Actualizacion disponible - aplicando..." >> "$LOG"
+    echo "[$DATE] Actualizacion disponible en origin/$TARGET_BRANCH - aplicando..." >> "$LOG"
     backup_conflicting_untracked
-    git reset --hard origin/master >> "$LOG" 2>&1
+    git reset --hard "origin/$TARGET_BRANCH" >> "$LOG" 2>&1
     CHANGED=1
 fi
 

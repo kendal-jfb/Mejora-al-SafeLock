@@ -61,7 +61,7 @@ jobs:
           # packs.py es obligatorio: main.py y report.py hacen "from packs
           # import ..." y sin el la API no arranca (bug detectado en v2.0.1).
           mkdir -p "$STAGE/api"
-          cp api/main.py api/report.py api/packs.py "$STAGE/api/"
+          cp api/main.py api/report.py api/packs.py api/threat_engine.py api/sentinel_connector.py api/pack_scheduler.py "$STAGE/api/"
 
           # Portal ya compilado: el SoC no vuelve a ejecutar npm.
           cp -r portal/dist "$STAGE/portal_dist"

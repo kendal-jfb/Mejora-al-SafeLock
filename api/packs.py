@@ -8,7 +8,14 @@ from datetime import datetime
 
 # Los datos (bind mounts de docker) siguen donde los dejo el aprovisionamiento;
 # el codigo se mueve entre releases, los datos no.
-DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "/root/safeLock_SoC")
+DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
+if not DATA_DIR:
+    if os.path.exists("/root/safeLock_SoC"):
+        DATA_DIR = "/root/safeLock_SoC"
+    elif os.path.exists("/data"):
+        DATA_DIR = "/data"
+    else:
+        DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # La configuracion del cliente debe sobrevivir a las actualizaciones, asi que
 # tras migrar vive fuera del arbol de releases. Mientras no exista la ruta

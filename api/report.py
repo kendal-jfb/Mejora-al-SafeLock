@@ -278,9 +278,15 @@ def send_report(recipient, subject, html):
         msg["From"]    = f"SafeLock Reports <{SENDER_EMAIL}>"
         msg["To"]      = recipient
         msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
-            server.login(SENDER_EMAIL, SENDER_PASS)
-            server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.login(SENDER_EMAIL, SENDER_PASS)
+                server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.starttls()
+                server.login(SENDER_EMAIL, SENDER_PASS)
+                server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
         print(f"[OK] Reporte enviado a {recipient}")
         return True
     except Exception as e:

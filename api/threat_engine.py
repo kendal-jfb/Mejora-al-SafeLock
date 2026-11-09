@@ -25,13 +25,16 @@ from datetime import datetime, timedelta
 # CONFIGURACIÓN Y RUTAS DE BASES DE DATOS
 # ==============================================================================
 DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
-if DATA_DIR and os.path.exists(DATA_DIR):
-    NETALERTX_DB = os.path.join(DATA_DIR, "netalertx", "data", "db", "app.db")
-    PIHOLE_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    NETALERTX_DB = os.path.join(BASE_DIR, "netalertx", "data", "db", "app.db")
-    PIHOLE_DB = os.path.join(BASE_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
+if not DATA_DIR:
+    if os.path.exists("/root/safeLock_SoC/pihole"):
+        DATA_DIR = "/root/safeLock_SoC"
+    elif os.path.exists("/data/pihole"):
+        DATA_DIR = "/data"
+    else:
+        DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+NETALERTX_DB = os.path.join(DATA_DIR, "netalertx", "data", "db", "app.db")
+PIHOLE_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
 
 
 def _conectar_sqlite(ruta_db: str, solo_lectura: bool = True):
@@ -93,17 +96,17 @@ WHITELIST_DOMINIOS = {
     "youtube.com", "youtu.be",
     "hulu.com", "disneyplus.com", "max.com",
     # Gaming — Epic Games
-    "epicgames.com", "epicgames-dns.com", "unrealengine.com",
+    "epicgames.com", "epicgames-dns.com", "unrealengine.com", "on.epicgames.com",
     # Gaming — EA / FIFA / Origin
-    "ea.com", "easports.com", "origin.com", "eaassets-a.akamaihd.net",
+    "ea.com", "easports.com", "origin.com", "eaassets-a.akamaihd.net", "fifa.com", "eafc.com",
     # Gaming — Steam / Valve
     "steampowered.com", "steam.com", "steamcommunity.com",
-    "steamcontent.com", "steamstatic.com", "steamstore-a.akamaihd.net",
+    "steamcontent.com", "steamstatic.com", "steamstore-a.akamaihd.net", "valvesoftware.com",
     # Gaming — Riot / LoL / Valorant
     "riotgames.com", "leagueoflegends.com", "playvalorant.com",
-    "riotgames.net", "rgpub.io",
+    "riotgames.net", "rgpub.io", "riotcdn.net", "pvp.net",
     # Gaming — Activision / Blizzard / COD
-    "activision.com", "blizzard.com", "battle.net",
+    "activision.com", "blizzard.com", "battle.net", "callofduty.com",
     # Gaming — PlayStation / Sony
     "playstation.com", "playstation.net", "sonyentertainmentnetwork.com",
     "dualshockers.com", "dl.playstation.net",
@@ -113,7 +116,7 @@ WHITELIST_DOMINIOS = {
     "nintendo.com", "nintendo.net", "nintendolife.com",
     # Gaming — Minecraft / Mojang / Microsoft Gaming
     "minecraft.net", "mojang.com", "minecraftservices.com",
-    "xboxlive.com",
+    "xboxlive.com", "msftconnecttest.com",
     # Gaming — Roblox
     "roblox.com", "rbxcdn.com", "robloxlabs.com",
     # IoT / Smart TV / Dispositivos del hogar
@@ -132,6 +135,28 @@ EXTENSIONES_SOSPECHOSAS = {
     ".xyz", ".top", ".ru", ".tk", ".click", ".buzz",
     ".work", ".icu", ".cc", ".cn", ".biz"
 }
+
+
+def obtener_whitelist_completa() -> set:
+    """
+    Combina la lista blanca base del sistema con las excepciones personalizadas
+    por el usuario (almacenadas en config.json bajo 'user_whitelist').
+    Permite que un falso positivo marcado por el usuario sea ignorado
+    por completo y de forma definitiva.
+    """
+    dominios = set(WHITELIST_DOMINIOS)
+    try:
+        from packs import load_full_config
+        cfg = load_full_config()
+        user_wl = cfg.get("user_whitelist", [])
+        if isinstance(user_wl, list):
+            for d in user_wl:
+                d_clean = str(d or "").strip().lower().rstrip(".")
+                if d_clean:
+                    dominios.add(d_clean)
+    except Exception:
+        pass
+    return dominios
 
 
 # ==============================================================================
@@ -267,6 +292,7 @@ def contar_bloqueados(ip, horas=24):
     """
     Consulta en Pi-hole cuántas peticiones de esta IP fueron bloqueadas
     en las últimas 'horas' y extrae ejemplos de dominios bloqueados.
+    Descarta de los ejemplos aquellos dominios explícitamente permitidos por el usuario.
     """
     conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
     if not conn:
@@ -274,6 +300,7 @@ def contar_bloqueados(ip, horas=24):
 
     total_bloqueos = 0
     dominios_bloqueados = []
+    whitelist = obtener_whitelist_completa()
 
     try:
         cursor = conn.cursor()
@@ -289,17 +316,25 @@ def contar_bloqueados(ip, horas=24):
         """
         total_bloqueos = cursor.execute(query_count, (ip, limite_tiempo)).fetchone()[0]
 
-        # Obtener hasta 3 dominios de ejemplo
+        # Obtener dominios de ejemplo omitiendo los permitidos
         query_dominios = """
             SELECT DISTINCT domain
             FROM queries
             WHERE client = ?
               AND status IN (1, 4, 5, 9, 10, 11)
               AND timestamp > ?
-            LIMIT 3
+            LIMIT 10
         """
         filas = cursor.execute(query_dominios, (ip, limite_tiempo)).fetchall()
-        dominios_bloqueados = [f[0] for f in filas if f[0]]
+        for f in filas:
+            dom = (f[0] or "").strip().lower().rstrip(".")
+            if not dom:
+                continue
+            es_permitido = any(dom == base or dom.endswith("." + base) for base in whitelist)
+            if not es_permitido:
+                dominios_bloqueados.append(dom)
+                if len(dominios_bloqueados) >= 3:
+                    break
 
     except Exception as e:
         print(f"[threat_engine] Error al contar bloqueos para {ip}: {e}")
@@ -312,17 +347,19 @@ def contar_bloqueados(ip, horas=24):
 # ==============================================================================
 # PASO 3: DETECCIÓN DE BEACONING (Llamadas periódicas insistentes)
 # ==============================================================================
-def detectar_beaconing(ip, horas=1, umbral=20):
+def detectar_beaconing(ip, horas=1, umbral=25):
     """
     Detecta si el dispositivo realiza demasiadas peticiones al mismo dominio
     en un intervalo corto (comportamiento típico de malware 'llamando a casa').
-    Excluye dominios locales, mDNS, consultas reversas y sufijos LAN.
+    Excluye dominios locales, mDNS, consultas reversas, sufijos LAN y dominios
+    en la lista blanca global o permitidos por el usuario.
     """
     conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
     if not conn:
         return []
 
     sospechosos = []
+    whitelist = obtener_whitelist_completa()
 
     try:
         cursor = conn.cursor()
@@ -351,7 +388,7 @@ def detectar_beaconing(ip, horas=1, umbral=20):
             if dom_clean.endswith(SUFIJOS_LOCALES):
                 continue
 
-            es_seguro = any(dom_clean == base or dom_clean.endswith("." + base) for base in WHITELIST_DOMINIOS)
+            es_seguro = any(dom_clean == base or dom_clean.endswith("." + base) for base in whitelist)
             if not es_seguro:
                 sospechosos.append({"dominio": dom_clean, "veces": veces})
 
@@ -376,7 +413,7 @@ def es_nombre_dga(dominio):
       - Maneja adecuadamente ccTLDs de dos partes (.co.cr, .com.mx, .co.uk).
       - Umbral de consonantes escalonado (0.82 para SLD < 10, 0.75 para SLD >= 10).
       - TLD sospechoso + SLD largo (>= 9 letras) como señal fuerte.
-      - Validación previa contra WHITELIST_DOMINIOS.
+      - Validación previa contra WHITELIST_DOMINIOS y lista blanca de usuario.
     """
     if not dominio:
         return False
@@ -388,8 +425,9 @@ def es_nombre_dga(dominio):
     if dominio_clean.endswith(SUFIJOS_LOCALES):
         return False
 
-    # Verificar contra whitelist completa (ápice y subdominio)
-    for base in WHITELIST_DOMINIOS:
+    # Verificar contra whitelist completa (sistema + exclusiones del usuario)
+    whitelist = obtener_whitelist_completa()
+    for base in whitelist:
         if dominio_clean == base or dominio_clean.endswith("." + base):
             return False
 

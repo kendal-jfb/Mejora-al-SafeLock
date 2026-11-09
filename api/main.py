@@ -307,9 +307,15 @@ def send_email_alert(subject, recipient, ip, port, service):
         </div>
         """
         msg.attach(MIMEText(html, "html"))
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
-            server.login(SENDER_EMAIL, SENDER_PASS)
-            server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.login(SENDER_EMAIL, SENDER_PASS)
+                server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.starttls()
+                server.login(SENDER_EMAIL, SENDER_PASS)
+                server.sendmail(SENDER_EMAIL, recipient, msg.as_string())
     except Exception as e:
         print(f"Error SMTP: {e}")
 
@@ -618,26 +624,44 @@ def get_internal_status(request: Request):
 
 @app.get("/pihole/stats")
 def get_pihole_stats():
+    if not os.path.exists(PIHOLE_DB):
+        return {"ads_blocked_today": 0, "dns_queries_today": 0, "ads_percentage_today": 0, "graph": []}
+    conn = None
     try:
-        # Conectamos a la DB de Pi-hole
-        conn = sqlite3.connect(PIHOLE_DB)
+        uri = f"file:{os.path.abspath(PIHOLE_DB)}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=10.0)
         conn.row_factory = sqlite3.Row
         curr = conn.cursor()
 
-        # 1. Total de peticiones hoy
-        total = curr.execute("SELECT COUNT(*) FROM queries WHERE CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+        now_ts = int(datetime.now().timestamp())
+        ts_24h = now_ts - 86400
+
+        # 1. Total de peticiones hoy usando timestamp entero (aprovecha índices)
+        total_row = curr.execute("SELECT COUNT(*) FROM queries WHERE timestamp > ?", (ts_24h,)).fetchone()
+        total = total_row[0] if total_row else 0
 
         # 2. Total bloqueado hoy
-        blocked = curr.execute("SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-24 hours')").fetchone()[0]
+        blocked_row = curr.execute(
+            "SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > ?",
+            (ts_24h,),
+        ).fetchone()
+        blocked = blocked_row[0] if blocked_row else 0
 
         # 3. Datos para la gráfica (últimas 6 horas)
         graph_data = []
         for i in range(6, -1, -1):
             h_label = f"-{i}h" if i > 0 else "ahora"
-            h_total = curr.execute(f"SELECT COUNT(*) FROM queries WHERE CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-{i+1} hours') AND CAST(timestamp AS INTEGER) <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
-            h_blocked = curr.execute(f"SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND CAST(timestamp AS INTEGER) > strftime('%s', 'now', '-{i+1} hours') AND CAST(timestamp AS INTEGER) <= strftime('%s', 'now', '-{i} hours')").fetchone()[0]
+            start_h = now_ts - (i + 1) * 3600
+            end_h = now_ts - i * 3600
+            h_total = curr.execute(
+                "SELECT COUNT(*) FROM queries WHERE timestamp > ? AND timestamp <= ?",
+                (start_h, end_h),
+            ).fetchone()[0]
+            h_blocked = curr.execute(
+                "SELECT COUNT(*) FROM queries WHERE status IN (1,4,5,9,10,11) AND timestamp > ? AND timestamp <= ?",
+                (start_h, end_h),
+            ).fetchone()[0]
             graph_data.append({"time": h_label, "peticiones": h_total, "bloqueado": h_blocked})
-        conn.close()
 
         pct = round((blocked / total * 100), 1) if total > 0 else 0
 
@@ -649,6 +673,9 @@ def get_pihole_stats():
         }
     except Exception as e:
         return {"error": str(e), "ads_blocked_today": 0, "dns_queries_today": 0, "ads_percentage_today": 0, "graph": []}
+    finally:
+        if conn:
+            conn.close()
 
 @app.get("/pihole/packs")
 def get_pihole_packs():
@@ -684,8 +711,11 @@ def save_pihole_pack_schedule(payload: PackSchedulePayload):
 
 # ── SafeLock Heuristic Sentinel (Persona 2: El Conector) ─────────────────────
 from sentinel_connector import (
+    add_to_user_whitelist,
     get_sentinel_honeypot_alerts,
     get_sentinel_status,
+    get_user_whitelist,
+    remove_from_user_whitelist,
     sync_pihole_blocks,
     update_sentinel_mode,
 )
@@ -698,6 +728,11 @@ class SentinelModePayload(BaseModel):
 class SentinelBlockPayload(BaseModel):
     domain: str
     enabled: bool = True
+
+
+class SentinelWhitelistPayload(BaseModel):
+    domain: str
+    action: str = "add"  # "add" o "remove"
 
 
 @app.get("/sentinel/status")
@@ -722,9 +757,44 @@ def change_sentinel_mode(payload: SentinelModePayload):
 
 @app.post("/sentinel/block")
 def block_sentinel_domain(payload: SentinelBlockPayload):
-    """Permite bloquear o desbloquear un dominio manualmente bajo [HEURISTIC_SHIELD]."""
+    """
+    Permite bloquear o desbloquear un dominio manualmente bajo [HEURISTIC_SHIELD].
+    Si enabled=False, el dominio se agrega a la lista de permitidos del usuario
+    de forma persistente para evitar falsos positivos y re-bloqueos.
+    """
     try:
-        applied = sync_pihole_blocks([payload.domain], enable_block=payload.enabled)
-        return {"success": True, "domain": payload.domain, "enabled": payload.enabled, "applied": applied}
+        dom = payload.domain.strip().lower().rstrip(".")
+        if not payload.enabled:
+            # Desbloquear = persistir en lista blanca del usuario
+            add_to_user_whitelist(dom)
+            return {"success": True, "domain": dom, "enabled": False, "whitelisted": True}
+        else:
+            # Bloquear = remover de permitidos y registrar en domainlist
+            remove_from_user_whitelist(dom)
+            applied = sync_pihole_blocks([dom], enable_block=True)
+            return {"success": True, "domain": dom, "enabled": True, "applied": applied}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sentinel/whitelist")
+def list_sentinel_whitelist():
+    """Retorna la lista de excepciones/dominios permitidos por el usuario."""
+    try:
+        return {"user_whitelist": get_user_whitelist()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sentinel/whitelist")
+def manage_sentinel_whitelist(payload: SentinelWhitelistPayload):
+    """Permite agregar o quitar dominios de la lista permitida por el usuario."""
+    try:
+        dom = payload.domain.strip().lower().rstrip(".")
+        if payload.action == "remove":
+            wl = remove_from_user_whitelist(dom)
+        else:
+            wl = add_to_user_whitelist(dom)
+        return {"success": True, "domain": dom, "action": payload.action, "user_whitelist": wl}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

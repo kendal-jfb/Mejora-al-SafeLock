@@ -22,14 +22,77 @@ from threat_engine import analizar_red
 
 # Rutas compatibles con Docker Compose (/data) y producción (/root/safeLock_SoC)
 DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
-if DATA_DIR and os.path.exists(DATA_DIR):
-    GRAVITY_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "gravity.db")
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    GRAVITY_DB = os.path.join(BASE_DIR, "pihole", "etc-pihole", "gravity.db")
+if not DATA_DIR:
+    if os.path.exists("/root/safeLock_SoC/pihole"):
+        DATA_DIR = "/root/safeLock_SoC"
+    elif os.path.exists("/data/pihole"):
+        DATA_DIR = "/data"
+    else:
+        DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+GRAVITY_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "gravity.db")
 
 HEURISTIC_TAG = "[HEURISTIC_SHIELD]"
 ALLOWED_MODES = {"shadow", "protect"}
+
+
+def get_user_whitelist() -> list:
+    """Retorna la lista de dominios excluidos/permitidos por el usuario."""
+    cfg = load_full_config()
+    wl = cfg.get("user_whitelist", [])
+    if not isinstance(wl, list):
+        return []
+    return sorted(list(set(str(d).strip().lower().rstrip(".") for d in wl if d)))
+
+
+def add_to_user_whitelist(domain: str) -> list:
+    """Agrega un dominio a la lista permitida por el usuario y remueve su bloqueo de Pi-hole."""
+    dom = str(domain or "").strip().lower().rstrip(".")
+    if not dom:
+        return get_user_whitelist()
+    cfg = load_full_config()
+    wl = set(get_user_whitelist())
+    wl.add(dom)
+    cfg["user_whitelist"] = sorted(list(wl))
+    save_full_config(cfg)
+
+    # Si existía en gravity.db con [HEURISTIC_SHIELD], desactivarlo de inmediato
+    if os.path.exists(GRAVITY_DB):
+        try:
+            conn = sqlite3.connect(GRAVITY_DB, timeout=10.0)
+            try:
+                conn.execute(
+                    "UPDATE domainlist SET enabled = 0 WHERE domain = ? AND comment = ?",
+                    (dom, HEURISTIC_TAG),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            reload_pihole_dns()
+        except Exception as e:
+            print(f"[sentinel_connector] Error al desactivar bloqueo para {dom}: {e}")
+
+    try:
+        analizar_red(forzar_refresco=True)
+    except Exception:
+        pass
+
+    return cfg["user_whitelist"]
+
+
+def remove_from_user_whitelist(domain: str) -> list:
+    """Remueve un dominio de la lista permitida por el usuario."""
+    dom = str(domain or "").strip().lower().rstrip(".")
+    cfg = load_full_config()
+    wl = set(get_user_whitelist())
+    wl.discard(dom)
+    cfg["user_whitelist"] = sorted(list(wl))
+    save_full_config(cfg)
+    try:
+        analizar_red(forzar_refresco=True)
+    except Exception:
+        pass
+    return cfg["user_whitelist"]
 
 
 def get_sentinel_mode() -> str:
@@ -60,12 +123,14 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     Sincroniza los dominios detectados en la tabla `domainlist` de `gravity.db`
     bajo el comentario `[HEURISTIC_SHIELD]` y recarga Pi-hole solo si hubo cambios.
     Asegura consultar y actualizar exclusivamente entradas de tipo bloqueo (type = 0).
+    Respeta estrictamente la lista blanca definida por el usuario.
     """
     if not os.path.exists(GRAVITY_DB):
         return []
 
     applied_domains = []
     changed = False
+    user_wl = set(get_user_whitelist())
 
     try:
         conn = sqlite3.connect(GRAVITY_DB, timeout=10.0)
@@ -89,9 +154,21 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
                 if cursor.rowcount > 0:
                     changed = True
 
+                # Garantizar que cualquier dominio en la whitelist de usuario quede desactivado
+                for w in user_wl:
+                    cursor.execute(
+                        "UPDATE domainlist SET enabled = 0 WHERE domain = ? AND comment = ? AND enabled = 1",
+                        (w, HEURISTIC_TAG),
+                    )
+                    if cursor.rowcount > 0:
+                        changed = True
+
                 for dom in sorted(set(domains or [])):
                     dom_clean = str(dom or "").strip().lower().rstrip(".")
                     if not dom_clean:
+                        continue
+                    # Si el usuario lo marcó como permitido, omitirlo
+                    if dom_clean in user_wl or any(dom_clean.endswith("." + w) for w in user_wl):
                         continue
 
                     row = cursor.execute(
@@ -133,25 +210,31 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
 def get_sentinel_status() -> dict:
     """
     Obtiene el análisis en tiempo real de Persona 1 (`analizar_red`),
-    le inyecta el modo actual ('shadow' o 'protect') y, si está en modo
-    'protect', aplica automáticamente los bloqueos en Pi-hole tanto para
-    dominios DGA como para conexiones maliciosas de Beaconing detectadas.
+    le inyecta el modo actual ('shadow' o 'protect'), la lista blanca de usuario
+    y, si está en modo 'protect', aplica automáticamente los bloqueos en Pi-hole
+    excluyendo las excepciones permitidas por el usuario.
     """
     mode = get_sentinel_mode()
     reporte = analizar_red()
 
-    # Inyectar el modo real elegido por el usuario en el panel
+    # Inyectar el modo y la lista blanca de usuario
     reporte["mode"] = mode
+    user_wl = set(get_user_whitelist())
+    reporte["user_whitelist"] = sorted(list(user_wl))
 
-    # Recolectar todos los dominios sospechosos (DGA y Beaconing)
+    # Recolectar todos los dominios sospechosos (DGA y Beaconing) excluyendo whitelist de usuario
     dominios_sospechosos = []
     for dev in reporte.get("devices", []):
         for dom in dev.get("dga_domains", []):
             if dom:
-                dominios_sospechosos.append(dom)
+                d_c = dom.strip().lower().rstrip(".")
+                if d_c not in user_wl and not any(d_c.endswith("." + w) for w in user_wl):
+                    dominios_sospechosos.append(d_c)
         for dom in dev.get("beacon_domains", []):
             if dom:
-                dominios_sospechosos.append(dom)
+                d_c = dom.strip().lower().rstrip(".")
+                if d_c not in user_wl and not any(d_c.endswith("." + w) for w in user_wl):
+                    dominios_sospechosos.append(d_c)
 
     if mode == "protect" and dominios_sospechosos:
         bloqueados = sync_pihole_blocks(dominios_sospechosos, enable_block=True)
