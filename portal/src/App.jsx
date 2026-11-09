@@ -37,20 +37,20 @@ function useAPI(endpoint, interval = 30000) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const go = async () => {
+    if (document.hidden) return;
+    try {
+      const r = await fetch(`${API}${endpoint}`);
+      if (!r.ok) throw new Error();
+      setData(await r.json()); setError(false);
+    } catch { setError(true); } finally { setLoading(false); }
+  };
   useEffect(() => {
-    const go = async () => {
-      if (document.hidden) return;
-      try {
-        const r = await fetch(`${API}${endpoint}`);
-        if (!r.ok) throw new Error();
-        setData(await r.json()); setError(false);
-      } catch { setError(true); } finally { setLoading(false); }
-    };
     go();
     const t = setInterval(go, interval);
     return () => clearInterval(t);
   }, [endpoint, interval]);
-  return { data, loading, error };
+  return { data, loading, error, refetch: go, setData };
 }
 
 function timeAgo(dt) {
@@ -647,12 +647,13 @@ function SemaforoChip({ state }) {
 }
 
 function HeuristicView() {
-  const { data, loading, error } = useAPI("/sentinel/status", 30000);
+  const { data, loading, error, refetch, setData } = useAPI("/sentinel/status", 10000);
   const offline = error || (!loading && !data?.devices);
   const info = offline ? SENTINEL_EMPTY : (data || SENTINEL_EMPTY);
   const [modeDraft, setModeDraft] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState("");
   const [unblockingDomain, setUnblockingDomain] = useState(null);
   const [unblockedDomains, setUnblockedDomains] = useState({});
@@ -667,6 +668,24 @@ function HeuristicView() {
   const devices = info.devices || [];
   const count = (st) => devices.filter(d => d.state === st).length;
   const alerts = devices.filter(d => d.state !== "green");
+
+  const manualRefresh = async () => {
+    setRefreshing(true);
+    setMsg("");
+    try {
+      const r = await fetch(`${API}/sentinel/refresh`, { method: "POST" });
+      if (r.ok) {
+        const fresh = await r.json();
+        setData(fresh);
+      } else {
+        await refetch();
+      }
+    } catch {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const applyMode = async (next) => {
     setSaving(true); setMsg(""); setConfirming(false);
@@ -712,7 +731,37 @@ function HeuristicView() {
       )}
 
       <Panel teal={protect}>
-        <PHead title="Protección heurística" icon={<Icon.Bug s={14}/>} right={protect ? "protección activa" : "modo sombra"}/>
+        <div style={{ padding:"12px 18px", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:"var(--mono)", fontSize:12, fontWeight:700, color: protect ? "var(--teal-brt)" : "var(--title)" }}>
+            <Icon.Bug s={16}/> PROTECCIÓN HEURÍSTICA ({protect ? "ESCUDO ACTIVO" : "MODO SOMBRA"})
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            {info.analizado_en && (
+              <span style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)" }}>
+                Escaneado {timeAgo(info.analizado_en)}
+              </span>
+            )}
+            <button
+              onClick={manualRefresh}
+              disabled={refreshing}
+              style={{
+                background:"var(--bg3)",
+                color:"var(--teal-brt)",
+                border:"1px solid var(--teal-brt)",
+                borderRadius:6,
+                padding:"5px 12px",
+                fontSize:11,
+                fontWeight:600,
+                cursor: refreshing ? "wait" : "pointer",
+                display:"flex",
+                alignItems:"center",
+                gap:6
+              }}
+            >
+              <Icon.Activity s={12}/> {refreshing ? "Escaneando…" : "↻ Analizar red ahora"}
+            </button>
+          </div>
+        </div>
         <div style={{ padding:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
           <div style={{ flex:"1 1 260px", minWidth:0 }}>
             <div style={{ fontSize:15, fontWeight:600, color:"var(--title)" }}>
@@ -853,8 +902,12 @@ function HeuristicView() {
         <PHead title="Semáforo por dispositivo" icon={<Icon.Monitor s={14}/>} right={`${devices.length} dispositivos`}/>
         <div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
           {devices.length === 0 && (
-            <div style={{ padding:24, textAlign:"center", color:"var(--text3)", fontSize:13, gridColumn:"1 / -1" }}>
-              No se detectaron dispositivos activos en la red local aún.
+            <div style={{ padding:32, textAlign:"center", color:"var(--text3)", fontSize:13, gridColumn:"1 / -1", display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+              <Icon.Monitor s={32} c="var(--text4)"/>
+              <div>No se detectaron dispositivos con tráfico DNS reciente en la red local aún.</div>
+              <div style={{ fontSize:12, color:"var(--text4)", maxWidth:420, lineHeight:1.5 }}>
+                Asegúrate de que los dispositivos estén enviando sus consultas DNS al SafeLock. Si acabas de realizar una prueba, pulsa el botón "↻ Analizar red ahora" arriba.
+              </div>
             </div>
           )}
           {devices.map(d => {

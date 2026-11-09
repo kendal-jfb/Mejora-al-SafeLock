@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timedelta
 
 # ==============================================================================
-# CONFIGURACIÓN Y RUTAS DE BASES DE DATOS
+# CONFIGURACIÓN Y RUTAS DE BASES DE DATOS (CON MULTI-FALLBACK AUTOMÁTICO)
 # ==============================================================================
 DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
 if not DATA_DIR:
@@ -33,25 +33,75 @@ if not DATA_DIR:
     else:
         DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-NETALERTX_DB = os.path.join(DATA_DIR, "netalertx", "data", "db", "app.db")
-PIHOLE_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "pihole-FTL.db")
+
+def resolver_ruta_pihole(ruta_preferida: str = "") -> str:
+    """Resuelve la ruta real existente para pihole-FTL.db evaluando ubicaciones estándar."""
+    if ruta_preferida and os.path.exists(ruta_preferida):
+        return ruta_preferida
+    env_r = os.environ.get("SAFELOCK_PIHOLE_DB", "")
+    if env_r and os.path.exists(env_r):
+        return env_r
+    candidatas = [
+        "/root/safeLock_SoC/pihole/etc-pihole/pihole-FTL.db",
+        "/etc/pihole/pihole-FTL.db",
+        "/data/pihole/etc-pihole/pihole-FTL.db",
+        "/opt/safelock/current/pihole/etc-pihole/pihole-FTL.db",
+        os.path.join(DATA_DIR, "pihole", "etc-pihole", "pihole-FTL.db"),
+        os.path.join(DATA_DIR, "pihole", "pihole-FTL.db"),
+    ]
+    for c in candidatas:
+        if c and os.path.exists(c):
+            return c
+    return candidatas[0]
+
+
+def resolver_ruta_netalertx(ruta_preferida: str = "") -> str:
+    """Resuelve la ruta real existente para app.db (NetAlertX)."""
+    if ruta_preferida and os.path.exists(ruta_preferida):
+        return ruta_preferida
+    env_r = os.environ.get("SAFELOCK_NETALERTX_DB", "")
+    if env_r and os.path.exists(env_r):
+        return env_r
+    candidatas = [
+        "/root/safeLock_SoC/netalertx/data/db/app.db",
+        "/data/netalertx/data/db/app.db",
+        "/etc/netalertx/app.db",
+        "/opt/safelock/current/netalertx/data/db/app.db",
+        os.path.join(DATA_DIR, "netalertx", "data", "db", "app.db"),
+    ]
+    for c in candidatas:
+        if c and os.path.exists(c):
+            return c
+    return candidatas[0]
+
+
+NETALERTX_DB = resolver_ruta_netalertx()
+PIHOLE_DB = resolver_ruta_pihole()
 
 
 def _conectar_sqlite(ruta_db: str, solo_lectura: bool = True):
     """
-    Abre una conexión segura a SQLite.
+    Abre una conexión segura a SQLite con multi-fallback si la ruta original no existe.
     Usa timeout de 10s y modo solo lectura (URI) para no generar contención
     ni bloqueos contra procesos concurrentes (Pi-hole FTL / NetAlertX).
     """
-    if not ruta_db or not os.path.exists(ruta_db):
+    if not ruta_db:
         return None
+    ruta_real = ruta_db
+    if not os.path.exists(ruta_real):
+        if "pihole" in ruta_real:
+            ruta_real = resolver_ruta_pihole(ruta_db)
+        elif "netalertx" in ruta_real or "app.db" in ruta_real:
+            ruta_real = resolver_ruta_netalertx(ruta_db)
+        if not os.path.exists(ruta_real):
+            return None
     try:
         if solo_lectura:
-            uri = f"file:{os.path.abspath(ruta_db)}?mode=ro"
+            uri = f"file:{os.path.abspath(ruta_real)}?mode=ro"
             return sqlite3.connect(uri, uri=True, timeout=10.0)
-        return sqlite3.connect(ruta_db, timeout=10.0)
+        return sqlite3.connect(ruta_real, timeout=10.0)
     except Exception as e:
-        print(f"[threat_engine] Error al conectar a {ruta_db}: {e}")
+        print(f"[threat_engine] Error al conectar a {ruta_real}: {e}")
         return None
 
 
@@ -191,60 +241,59 @@ def _es_ip_lan(ip: str) -> bool:
 
 def obtener_dispositivos():
     """
-    Obtiene la lista de dispositivos LAN registrados y activos desde NetAlertX.
+    Obtiene la lista de dispositivos LAN registrados y activos desde NetAlertX
+    y de forma complementaria desde el historial de consultas de Pi-hole.
     Excluye IPs públicas, contenedores Docker internos (172.x) y loopback.
     Deduplica por IP para evitar dispositivos repetidos en el análisis.
     """
-    conn = _conectar_sqlite(NETALERTX_DB, solo_lectura=True)
-    if not conn:
-        return []
-
     dispositivos = []
     ips_vistas = set()
 
-    try:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+    conn = _conectar_sqlite(NETALERTX_DB, solo_lectura=True)
+    if conn:
+        try:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
 
-        consulta = """
-            SELECT devLastIP, devName, devMac, devVendor
-            FROM Devices
-            WHERE devIsArchived = 0
-              AND devLastIP IS NOT NULL
-              AND devLastIP != ''
-            ORDER BY devLastConnection DESC
-        """
-        filas = cursor.execute(consulta).fetchall()
+            consulta = """
+                SELECT devLastIP, devName, devMac, devVendor
+                FROM Devices
+                WHERE devIsArchived = 0
+                  AND devLastIP IS NOT NULL
+                  AND devLastIP != ''
+                ORDER BY devLastConnection DESC
+            """
+            filas = cursor.execute(consulta).fetchall()
 
-        for fila in filas:
-            ip = fila["devLastIP"]
+            for fila in filas:
+                ip = fila["devLastIP"]
 
-            # Descartar IPs que no son de la red del cliente
-            if not _es_ip_lan(ip):
-                continue
+                # Descartar IPs que no son de la red del cliente
+                if not _es_ip_lan(ip):
+                    continue
 
-            if ip in ips_vistas:
-                continue
-            ips_vistas.add(ip)
+                if ip in ips_vistas:
+                    continue
+                ips_vistas.add(ip)
 
-            nombre = fila["devName"]
-            if not nombre or nombre in ("(name not found)", "(unknown)", ""):
-                vendor = fila["devVendor"]
-                nombre = f"Dispositivo ({vendor})" if vendor else f"Equipo-{ip}"
+                nombre = fila["devName"]
+                if not nombre or nombre in ("(name not found)", "(unknown)", ""):
+                    vendor = fila["devVendor"]
+                    nombre = f"Dispositivo ({vendor})" if vendor else f"Equipo-{ip}"
 
-            dispositivos.append({
-                "ip": ip,
-                "nombre": nombre,
-                "mac": fila["devMac"] or "Desconocida",
-                "vendor": fila["devVendor"] or ""
-            })
+                dispositivos.append({
+                    "ip": ip,
+                    "nombre": nombre,
+                    "mac": fila["devMac"] or "Desconocida",
+                    "vendor": fila["devVendor"] or ""
+                })
 
-    except Exception as e:
-        print(f"[threat_engine] Error al leer NetAlertX: {e}")
-    finally:
-        conn.close()
+        except Exception as e:
+            print(f"[threat_engine] Error al leer NetAlertX: {e}")
+        finally:
+            conn.close()
 
-    # Descubrimiento complementario: clientes LAN activos en Pi-hole
+    # Descubrimiento complementario: clientes LAN activos en Pi-hole (últimas 24h)
     conn_pi = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
     if conn_pi:
         try:
@@ -255,7 +304,7 @@ def obtener_dispositivos():
                 (limite_tiempo,)
             ).fetchall()
             for fila_pi in filas_pi:
-                c_ip = fila_pi[0]
+                c_ip = str(fila_pi[0] or "").strip()
                 if not c_ip or not _es_ip_lan(c_ip):
                     continue
                 if c_ip in ips_vistas:
@@ -267,6 +316,25 @@ def obtener_dispositivos():
                     "mac": "Detectado vía DNS",
                     "vendor": "Red Local",
                 })
+
+            # Si la lista aún está vacía, buscar clientes históricos recientes en queries
+            if not dispositivos:
+                filas_hist = cursor_pi.execute(
+                    "SELECT client, MAX(timestamp) as m_ts FROM queries GROUP BY client ORDER BY m_ts DESC LIMIT 20"
+                ).fetchall()
+                for f_hist in filas_hist:
+                    c_ip = str(f_hist[0] or "").strip()
+                    if not c_ip or not _es_ip_lan(c_ip):
+                        continue
+                    if c_ip in ips_vistas:
+                        continue
+                    ips_vistas.add(c_ip)
+                    dispositivos.append({
+                        "ip": c_ip,
+                        "nombre": f"Dispositivo ({c_ip})",
+                        "mac": "Detectado vía DNS",
+                        "vendor": "Red Local",
+                    })
         except Exception as e_pi:
             print(f"[threat_engine] Error al descubrir clientes en Pi-hole: {e_pi}")
         finally:
@@ -319,7 +387,7 @@ def obtener_metricas_dns(ip, horas=24):
 def contar_bloqueados(ip, horas=24):
     """
     Consulta en Pi-hole cuántas peticiones de esta IP fueron bloqueadas
-    en las últimas 'horas' y extrae ejemplos de dominios bloqueados.
+    en las últimas 'horas' y extrae ejemplos de dominios bloqueados más recientes.
     Descarta de los ejemplos aquellos dominios explícitamente permitidos por el usuario.
     """
     conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
@@ -344,14 +412,16 @@ def contar_bloqueados(ip, horas=24):
         """
         total_bloqueos = cursor.execute(query_count, (ip, limite_tiempo)).fetchone()[0]
 
-        # Obtener dominios de ejemplo omitiendo los permitidos
+        # Obtener dominios bloqueados MÁS RECIENTES omitiendo los permitidos
         query_dominios = """
-            SELECT DISTINCT domain
+            SELECT domain, MAX(timestamp) as max_ts
             FROM queries
             WHERE client = ?
               AND status IN (1, 4, 5, 9, 10, 11)
               AND timestamp > ?
-            LIMIT 10
+            GROUP BY domain
+            ORDER BY max_ts DESC
+            LIMIT 30
         """
         filas = cursor.execute(query_dominios, (ip, limite_tiempo)).fetchall()
         for f in filas:
@@ -359,9 +429,9 @@ def contar_bloqueados(ip, horas=24):
             if not dom:
                 continue
             es_permitido = any(dom == base or dom.endswith("." + base) for base in whitelist)
-            if not es_permitido:
+            if not es_permitido and dom not in dominios_bloqueados:
                 dominios_bloqueados.append(dom)
-                if len(dominios_bloqueados) >= 3:
+                if len(dominios_bloqueados) >= 5:
                     break
 
     except Exception as e:
@@ -394,17 +464,19 @@ def detectar_beaconing(ip, horas=1, umbral=25):
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
         consulta = """
-            SELECT domain, COUNT(*) as repeticiones
+            SELECT domain, COUNT(*) as repeticiones, MAX(timestamp) as max_ts
             FROM queries
             WHERE client = ?
               AND timestamp > ?
             GROUP BY domain
             HAVING repeticiones >= ?
-            ORDER BY repeticiones DESC
+            ORDER BY repeticiones DESC, max_ts DESC
         """
         filas = cursor.execute(consulta, (ip, limite_tiempo, umbral)).fetchall()
 
-        for dominio, veces in filas:
+        for fila in filas:
+            dominio = fila[0]
+            veces = fila[1]
             if not dominio:
                 continue
 
@@ -499,6 +571,8 @@ def buscar_dominios_dga(ip, horas=24):
     """
     Revisa los dominios consultados por la IP y detecta cuáles tienen
     patrones típicos de algoritmos DGA.
+    Ordena por MAX(timestamp) DESC para que las consultas recién realizadas
+    se analicen de primero y no queden ocultas tras el historial previo.
     """
     conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
     if not conn:
@@ -511,25 +585,67 @@ def buscar_dominios_dga(ip, horas=24):
         limite_tiempo = int((datetime.now() - timedelta(hours=horas)).timestamp())
 
         consulta = """
-            SELECT DISTINCT domain
+            SELECT domain, MAX(timestamp) as max_ts
             FROM queries
             WHERE client = ?
               AND timestamp > ?
-            LIMIT 200
+            GROUP BY domain
+            ORDER BY max_ts DESC
+            LIMIT 300
         """
         filas = cursor.execute(consulta, (ip, limite_tiempo)).fetchall()
 
         for fila in filas:
             dom = fila[0]
             if dom and es_nombre_dga(dom):
-                dga_detectados.append(dom.strip().rstrip("."))
+                dom_clean = dom.strip().rstrip(".")
+                if dom_clean not in dga_detectados:
+                    dga_detectados.append(dom_clean)
 
     except Exception as e:
         print(f"[threat_engine] Error al buscar DGA para {ip}: {e}")
     finally:
         conn.close()
 
-    return dga_detectados[:5]
+    return dga_detectados[:10]
+
+
+def obtener_ultimos_bloqueos_globales(limite: int = 20) -> list:
+    """
+    Retorna los dominios más recientemente bloqueados por Pi-hole en toda la red.
+    """
+    conn = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if not conn:
+        return []
+    bloqueos = []
+    whitelist = obtener_whitelist_completa()
+    try:
+        cursor = conn.cursor()
+        limite_tiempo = int((datetime.now() - timedelta(hours=24)).timestamp())
+        filas = cursor.execute("""
+            SELECT domain, MAX(timestamp) as max_ts
+            FROM queries
+            WHERE status IN (1, 4, 5, 9, 10, 11)
+              AND timestamp > ?
+            GROUP BY domain
+            ORDER BY max_ts DESC
+            LIMIT ?
+        """, (limite_tiempo, limite * 2)).fetchall()
+        for f in filas:
+            dom = (f[0] or "").strip().lower().rstrip(".")
+            if not dom:
+                continue
+            if any(dom == base or dom.endswith("." + base) for base in whitelist):
+                continue
+            if dom not in bloqueos:
+                bloqueos.append(dom)
+                if len(bloqueos) >= limite:
+                    break
+    except Exception as e:
+        print(f"[threat_engine] Error al obtener bloqueos globales: {e}")
+    finally:
+        conn.close()
+    return bloqueos
 
 
 # ==============================================================================
@@ -612,6 +728,40 @@ def analizar_red(forzar_refresco=False):
         return _CACHE_REPORTE
 
     dispositivos_raw = obtener_dispositivos()
+
+    # Detección proactiva de cualquier cliente reciente con consultas sospechosas o bloqueadas
+    conn_pi = _conectar_sqlite(PIHOLE_DB, solo_lectura=True)
+    if conn_pi:
+        try:
+            cursor_pi = conn_pi.cursor()
+            limite_1h = int((datetime.now() - timedelta(hours=1)).timestamp())
+            filas_sospechosas = cursor_pi.execute("""
+                SELECT client, domain, status
+                FROM queries
+                WHERE timestamp > ?
+                ORDER BY timestamp DESC
+                LIMIT 100
+            """, (limite_1h,)).fetchall()
+            ips_conocidas = {d["ip"] for d in dispositivos_raw}
+            for c_ip, dom, st in filas_sospechosas:
+                c_ip_str = str(c_ip or "").strip()
+                if not c_ip_str or c_ip_str in ips_conocidas:
+                    continue
+                if not _es_ip_lan(c_ip_str):
+                    continue
+                if (dom and es_nombre_dga(dom)) or st in (1, 4, 5, 9, 10, 11):
+                    ips_conocidas.add(c_ip_str)
+                    dispositivos_raw.append({
+                        "ip": c_ip_str,
+                        "nombre": f"Dispositivo ({c_ip_str})",
+                        "mac": "Detectado vía DNS",
+                        "vendor": "Red Local",
+                    })
+        except Exception:
+            pass
+        finally:
+            conn_pi.close()
+
     resultado_dispositivos = []
 
     for dev in dispositivos_raw:

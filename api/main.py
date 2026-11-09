@@ -688,11 +688,13 @@ def get_pihole_stats():
 @app.get("/pihole/recent-blocks")
 def get_recent_blocks():
     """Retorna los últimos dominios bloqueados por Pi-hole con cliente y marca de tiempo."""
-    if not os.path.exists(PIHOLE_DB):
+    from threat_engine import resolver_ruta_pihole
+    ruta_pi = resolver_ruta_pihole(PIHOLE_DB)
+    if not os.path.exists(ruta_pi):
         return {"total": 0, "blocks": []}
     conn = None
     try:
-        uri = f"file:{os.path.abspath(PIHOLE_DB)}?mode=ro"
+        uri = f"file:{os.path.abspath(ruta_pi)}?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=5.0)
         conn.row_factory = sqlite3.Row
         curr = conn.cursor()
@@ -758,6 +760,7 @@ def save_pihole_pack_schedule(payload: PackSchedulePayload):
 # ── SafeLock Heuristic Sentinel (Persona 2: El Conector) ─────────────────────
 from sentinel_connector import (
     add_to_user_whitelist,
+    get_sentinel_diagnostics,
     get_sentinel_honeypot_alerts,
     get_sentinel_status,
     get_user_whitelist,
@@ -782,10 +785,28 @@ class SentinelWhitelistPayload(BaseModel):
 
 
 @app.get("/sentinel/status")
-def read_sentinel_status():
+def read_sentinel_status(force: bool = False):
     """Devuelve el estado del Modo Seguro y el semáforo de dispositivos (Persona 1 -> Persona 3)."""
     try:
-        return get_sentinel_status()
+        return get_sentinel_status(forzar=force)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sentinel/refresh")
+def refresh_sentinel():
+    """Fuerza un re-análisis en tiempo real de todos los dispositivos y consultas en SQLite."""
+    try:
+        return get_sentinel_status(forzar=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sentinel/debug")
+def read_sentinel_debug():
+    """Diagnóstico integral de bases de datos, últimas consultas DNS registradas y heurística."""
+    try:
+        return get_sentinel_diagnostics()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

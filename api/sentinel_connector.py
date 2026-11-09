@@ -30,7 +30,28 @@ if not DATA_DIR:
     else:
         DATA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-GRAVITY_DB = os.path.join(DATA_DIR, "pihole", "etc-pihole", "gravity.db")
+
+def resolver_ruta_gravity(ruta_preferida: str = "") -> str:
+    """Resuelve la ruta real existente para gravity.db de Pi-hole."""
+    if ruta_preferida and os.path.exists(ruta_preferida):
+        return ruta_preferida
+    env_r = os.environ.get("SAFELOCK_GRAVITY_DB", "")
+    if env_r and os.path.exists(env_r):
+        return env_r
+    candidatas = [
+        "/root/safeLock_SoC/pihole/etc-pihole/gravity.db",
+        "/etc/pihole/gravity.db",
+        "/data/pihole/etc-pihole/gravity.db",
+        "/opt/safelock/current/pihole/etc-pihole/gravity.db",
+        os.path.join(DATA_DIR, "pihole", "etc-pihole", "gravity.db"),
+    ]
+    for c in candidatas:
+        if c and os.path.exists(c):
+            return c
+    return candidatas[0]
+
+
+GRAVITY_DB = resolver_ruta_gravity()
 
 HEURISTIC_TAG = "[HEURISTIC_SHIELD]"
 ALLOWED_MODES = {"shadow", "protect"}
@@ -57,9 +78,10 @@ def add_to_user_whitelist(domain: str) -> list:
     save_full_config(cfg)
 
     # Si existía en gravity.db con [HEURISTIC_SHIELD], desactivarlo de inmediato
-    if os.path.exists(GRAVITY_DB):
+    ruta_grav = resolver_ruta_gravity(GRAVITY_DB)
+    if os.path.exists(ruta_grav):
         try:
-            conn = sqlite3.connect(GRAVITY_DB, timeout=10.0)
+            conn = sqlite3.connect(ruta_grav, timeout=10.0)
             try:
                 conn.execute(
                     "UPDATE domainlist SET enabled = 0 WHERE domain = ? AND comment = ?",
@@ -125,7 +147,8 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     Asegura consultar y actualizar exclusivamente entradas de tipo bloqueo (type = 0).
     Respeta estrictamente la lista blanca definida por el usuario.
     """
-    if not os.path.exists(GRAVITY_DB):
+    ruta_grav = resolver_ruta_gravity(GRAVITY_DB)
+    if not os.path.exists(ruta_grav):
         return []
 
     applied_domains = []
@@ -133,7 +156,7 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     user_wl = set(get_user_whitelist())
 
     try:
-        conn = sqlite3.connect(GRAVITY_DB, timeout=10.0)
+        conn = sqlite3.connect(ruta_grav, timeout=10.0)
         try:
             cursor = conn.cursor()
 
@@ -207,7 +230,7 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     return applied_domains
 
 
-def get_sentinel_status() -> dict:
+def get_sentinel_status(forzar: bool = False) -> dict:
     """
     Obtiene el análisis en tiempo real de Persona 1 (`analizar_red`),
     le inyecta el modo actual ('shadow' o 'protect'), la lista blanca de usuario
@@ -215,7 +238,7 @@ def get_sentinel_status() -> dict:
     excluyendo las excepciones permitidas por el usuario.
     """
     mode = get_sentinel_mode()
-    reporte = analizar_red()
+    reporte = analizar_red(forzar_refresco=forzar)
 
     # Inyectar el modo y la lista blanca de usuario
     reporte["mode"] = mode
@@ -241,15 +264,116 @@ def get_sentinel_status() -> dict:
     else:
         bloqueados = []
 
-    # Dominios bloqueados totales visibles en el panel (Heurísticos + Pi-hole)
+    # Dominios bloqueados totales visibles en el panel (Heurísticos + Pi-hole + Globales)
     dominios_bloq_dispositivos = []
     for dev in reporte.get("devices", []):
         for b in dev.get("blocked_domains", []):
             if b:
                 dominios_bloq_dispositivos.append(b)
 
-    reporte["blocked_domains"] = sorted(list(set(bloqueados + dominios_bloq_dispositivos)))
+    try:
+        from threat_engine import obtener_ultimos_bloqueos_globales
+        bloqueos_globales = obtener_ultimos_bloqueos_globales(limite=20)
+    except Exception:
+        bloqueos_globales = []
+
+    reporte["blocked_domains"] = sorted(list(set(bloqueados + dominios_bloq_dispositivos + bloqueos_globales)))
     return reporte
+
+
+def get_sentinel_diagnostics() -> dict:
+    """
+    Recopila información diagnóstica completa sobre rutas, permisos,
+    conectividad con bases de datos y últimas consultas registradas en Pi-hole.
+    Permite validar de inmediato si el motor está recibiendo las consultas DNS.
+    """
+    from threat_engine import (
+        resolver_ruta_pihole,
+        resolver_ruta_netalertx,
+        _conectar_sqlite,
+    )
+    pi_path = resolver_ruta_pihole()
+    grav_path = resolver_ruta_gravity()
+    na_path = resolver_ruta_netalertx()
+
+    def _file_info(p):
+        if not p or not os.path.exists(p):
+            return {"path": p, "exists": False}
+        st = os.stat(p)
+        return {
+            "path": p,
+            "exists": True,
+            "size_bytes": st.st_size,
+            "modified_iso": datetime.fromtimestamp(st.st_mtime).isoformat(),
+        }
+
+    diag = {
+        "timestamp": datetime.now().isoformat(),
+        "paths": {
+            "pihole_db": _file_info(pi_path),
+            "gravity_db": _file_info(grav_path),
+            "netalertx_db": _file_info(na_path),
+        },
+        "mode": get_sentinel_mode(),
+        "user_whitelist": get_user_whitelist(),
+        "pihole_sample": {},
+        "heuristica_preview": {},
+    }
+
+    conn_pi = _conectar_sqlite(pi_path, solo_lectura=True)
+    if conn_pi:
+        try:
+            cur = conn_pi.cursor()
+            limite = int((datetime.now() - timedelta(days=2)).timestamp())
+            total = cur.execute("SELECT COUNT(*) FROM queries WHERE timestamp > ?", (limite,)).fetchone()[0]
+            ultimas = cur.execute("""
+                SELECT timestamp, client, domain, status
+                FROM queries
+                ORDER BY timestamp DESC
+                LIMIT 10
+            """).fetchall()
+            ultimas_list = [
+                {
+                    "timestamp": r[0],
+                    "timestamp_iso": datetime.fromtimestamp(float(r[0])).isoformat() if r[0] else "",
+                    "client": r[1],
+                    "domain": r[2],
+                    "status": r[3],
+                }
+                for r in ultimas
+            ]
+            diag["pihole_sample"] = {
+                "queries_recientes": total,
+                "ultimas_queries": ultimas_list,
+            }
+        except Exception as e:
+            diag["pihole_sample"] = {"error": str(e)}
+        finally:
+            conn_pi.close()
+    else:
+        diag["pihole_sample"] = {"error": f"No se pudo conectar a SQLite de Pi-hole en {pi_path}"}
+
+    try:
+        rep = analizar_red(forzar_refresco=True)
+        diag["heuristica_preview"] = {
+            "total_dispositivos": rep.get("total_dispositivos", 0),
+            "dispositivos": [
+                {
+                    "ip": d.get("ip"),
+                    "name": d.get("name"),
+                    "state": d.get("state"),
+                    "dga": d.get("dga_domains"),
+                    "beacon": d.get("beacon_domains"),
+                    "blocked": d.get("blocked_domains"),
+                }
+                for d in rep.get("devices", [])
+            ],
+            "blocked_domains": rep.get("blocked_domains", []),
+        }
+    except Exception as e:
+        diag["heuristica_preview"] = {"error": str(e)}
+
+    return diag
 
 
 def update_sentinel_mode(new_mode: str) -> dict:
