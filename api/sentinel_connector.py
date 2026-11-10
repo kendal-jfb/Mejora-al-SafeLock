@@ -155,7 +155,7 @@ SAFE_GAMING_DOMAINS = (
 DEFAULT_PACK_DEFINITIONS = {
     "PACK_FAMILY": (3, r"(\.|^)(pornhub\.com|xvideos\.com|bet365\.com|onlyfans\.com|xnxx\.com)$"),
     "PACK_DETOX": (3, r"(\.|^)(tiktok\.com|tiktokcdn\.com|instagram\.com|facebook\.com|fbcdn\.net|twitter\.com|x\.com)$"),
-    "PACK_GAMES": (3, r"(\.|^)(roblox\.com|minecraft\.net|epicgames\.com|epicgames\.dev|fortnite\.com|ea\.com|steampowered\.com|riotgames\.com|battle\.net|blizzard\.com)$"),
+    "PACK_GAMES": (3, r"(\.|^)(roblox\.com|minecraft\.net|epicgames\.com|epicgames\.dev|fortnite\.com|ea\.com|steampowered\.com|steamcommunity\.com|riotgames\.com|leagueoflegends\.com|playvalorant\.com|battle\.net|blizzard\.com|supercell\.com|pubg\.com)$"),
     "PACK_PRIVACY": (3, r"(\.|^)(telemetry\.microsoft\.com|logs\.roku\.com|device-metrics-us\.amazon\.com|metric\.apple\.com|usage\.netflix\.com)$"),
 }
 

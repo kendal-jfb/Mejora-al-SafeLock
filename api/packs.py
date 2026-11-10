@@ -185,6 +185,11 @@ def set_pack_enabled(pack, enabled, source="manual"):
         if curr.rowcount == 0:
             raise ValueError(f"No se encontró el pack {pack} en gravity.db")
 
+        # Si se activa o desactiva PACK_GAMES, coordinar la lista blanca [SAFE_GAMING]
+        if pack == "PACK_GAMES":
+            safe_status = 0 if enabled else 1
+            curr.execute("UPDATE domainlist SET enabled = ? WHERE comment = '[SAFE_GAMING]'", (safe_status,))
+
         conn.commit()
     finally:
         conn.close()

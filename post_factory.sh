@@ -38,7 +38,7 @@ done
 if [ "$READY_DB" -eq 1 ]; then
     sqlite3 "$PIHOLE_DB" "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (3, '(\.|^)(pornhub\.com|xvideos\.com|bet365\.com|onlyfans\.com|xnxx\.com)$', 0, '[PACK_FAMILY]');" || true
     sqlite3 "$PIHOLE_DB" "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (3, '(\.|^)(tiktok\.com|tiktokcdn\.com|instagram\.com|facebook\.com|fbcdn\.net|twitter\.com|x\.com)$', 0, '[PACK_DETOX]');" || true
-    sqlite3 "$PIHOLE_DB" "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (3, '(\.|^)(roblox\.com|minecraft\.net|epicgames\.com|epicgames\.dev|fortnite\.com|ea\.com|steampowered\.com|riotgames\.com|battle\.net|blizzard\.com)$', 0, '[PACK_GAMES]');" || true
+    sqlite3 "$PIHOLE_DB" "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (3, '(\.|^)(roblox\.com|minecraft\.net|epicgames\.com|epicgames\.dev|fortnite\.com|ea\.com|steampowered\.com|steamcommunity\.com|riotgames\.com|leagueoflegends\.com|playvalorant\.com|battle\.net|blizzard\.com|supercell\.com|pubg\.com)$', 0, '[PACK_GAMES]');" || true
     sqlite3 "$PIHOLE_DB" "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (3, '(\.|^)(telemetry\.microsoft\.com|logs\.roku\.com|device-metrics-us\.amazon\.com|metric\.apple\.com|usage\.netflix\.com)$', 0, '[PACK_PRIVACY]');" || true
 
     # Lista blanca de endpoints críticos de gaming para que adlists (StevenBlack, etc.) no rompan Fortnite u otros juegos
