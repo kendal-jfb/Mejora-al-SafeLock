@@ -25,4 +25,21 @@ done
 # Actualizar gravity (descargar listas)
 echo "[$(date)] Actualizando gravity..." >> $LOG
 docker exec pihole pihole -g >> $LOG 2>&1
+
+# Asegurar lista blanca de gaming para que las adlists no bloqueen Fortnite ni servicios de juegos
+GAMING_ALLOWLIST=(
+  "tracking.epicgames.com"
+  "datarouter.ol.epicgames.com"
+  "api.epicgames.dev"
+  "dev.epicgames.com"
+  "easyanticheat.net"
+  "easy.ac"
+  "battleye.com"
+  "vivox.com"
+)
+for dom in "${GAMING_ALLOWLIST[@]}"; do
+  docker exec pihole sqlite3 /etc/pihole/gravity.db \
+    "INSERT OR IGNORE INTO domainlist (type, domain, enabled, comment) VALUES (0, '$dom', 1, '[SAFE_GAMING]');"
+done
+
 echo "[$(date)] Setup completo." >> $LOG

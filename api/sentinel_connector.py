@@ -18,7 +18,7 @@ import subprocess
 from datetime import datetime, timedelta
 
 from packs import load_full_config, save_full_config
-from threat_engine import analizar_red
+from threat_engine import analizar_red, obtener_whitelist_completa
 
 # Rutas compatibles con Docker Compose (/data) y producción (/root/safeLock_SoC)
 DATA_DIR = os.environ.get("SAFELOCK_DATA_DIR", "")
@@ -140,12 +140,114 @@ def reload_pihole_dns() -> bool:
         return False
 
 
+# Endpoints críticos de gaming que adlists (StevenBlack, etc.) bloquean por error
+SAFE_GAMING_DOMAINS = (
+    "tracking.epicgames.com",
+    "datarouter.ol.epicgames.com",
+    "api.epicgames.dev",
+    "dev.epicgames.com",
+    "easyanticheat.net",
+    "easy.ac",
+    "battleye.com",
+    "vivox.com",
+)
+
+DEFAULT_PACK_DEFINITIONS = {
+    "PACK_FAMILY": (3, r"(\.|^)(pornhub\.com|xvideos\.com|bet365\.com|onlyfans\.com|xnxx\.com)$"),
+    "PACK_DETOX": (3, r"(\.|^)(tiktok\.com|tiktokcdn\.com|instagram\.com|facebook\.com|fbcdn\.net|twitter\.com|x\.com)$"),
+    "PACK_GAMES": (3, r"(\.|^)(roblox\.com|minecraft\.net|epicgames\.com|epicgames\.dev|fortnite\.com|ea\.com|steampowered\.com|riotgames\.com|battle\.net|blizzard\.com)$"),
+    "PACK_PRIVACY": (3, r"(\.|^)(telemetry\.microsoft\.com|logs\.roku\.com|device-metrics-us\.amazon\.com|metric\.apple\.com|usage\.netflix\.com)$"),
+}
+
+
+def ensure_pihole_gaming_whitelist(ruta_grav: str = "") -> bool:
+    """
+    Garantiza que endpoints críticos de gaming (autenticación 2FA de Epic,
+    telemetría de Fortnite requerida para matchmaking, anti-cheats y chat de voz)
+    estén dados de alta en la lista blanca de Pi-hole (type = 0, Exact Allowlist)
+    para evitar que adlists de terceros bloqueen Fortnite u otros juegos.
+
+    También actualiza el regex de PACK_GAMES para incluir explícitamente fortnite.com
+    y epicgames.dev, asegurando que cuando el usuario active el Filtro Anti-Juegos
+    sí bloquee Fortnite.
+    """
+    target = resolver_ruta_gravity(ruta_grav or GRAVITY_DB)
+    if not os.path.exists(target):
+        return False
+
+    changed = False
+    try:
+        conn = sqlite3.connect(target, timeout=10.0)
+        try:
+            cursor = conn.cursor()
+
+            # 1. Corregir cualquier regla previa de [HEURISTIC_SHIELD] con type = 0 a type = 1 (Exact Denylist)
+            cursor.execute(
+                "UPDATE domainlist SET type = 1 WHERE comment = ? AND type = 0",
+                (HEURISTIC_TAG,),
+            )
+            if cursor.rowcount > 0:
+                changed = True
+
+            # 2. Asegurar allowlist para endpoints de gaming (type = 0 = Exact Allowlist)
+            for gdom in SAFE_GAMING_DOMAINS:
+                row = cursor.execute(
+                    "SELECT id, type, enabled FROM domainlist WHERE domain = ?",
+                    (gdom,),
+                ).fetchone()
+                if row is None:
+                    cursor.execute(
+                        "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (0, ?, 1, '[SAFE_GAMING]')",
+                        (gdom,),
+                    )
+                    changed = True
+                else:
+                    if row[1] != 0 or row[2] == 0:
+                        cursor.execute(
+                            "UPDATE domainlist SET type = 0, enabled = 1, comment = '[SAFE_GAMING]' WHERE id = ?",
+                            (row[0],),
+                        )
+                        changed = True
+
+            # 3. Asegurar y actualizar definiciones de packs en domainlist
+            for pack_id, (p_type, p_regex) in DEFAULT_PACK_DEFINITIONS.items():
+                comment_tag = f"[{pack_id}]"
+                row = cursor.execute(
+                    "SELECT id, domain, enabled FROM domainlist WHERE comment = ?",
+                    (comment_tag,),
+                ).fetchone()
+                if row is None:
+                    cursor.execute(
+                        "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (?, ?, 0, ?)",
+                        (p_type, p_regex, comment_tag),
+                    )
+                    changed = True
+                elif pack_id == "PACK_GAMES" and ("fortnite" not in row[1] or "epicgames.dev" not in row[1]):
+                    cursor.execute(
+                        "UPDATE domainlist SET domain = ?, type = ? WHERE id = ?",
+                        (p_regex, p_type, row[0]),
+                    )
+                    changed = True
+
+            if changed:
+                conn.commit()
+        finally:
+            conn.close()
+
+        if changed:
+            reload_pihole_dns()
+        return True
+    except Exception as e:
+        print(f"[sentinel_connector] Aviso al configurar whitelist de gaming en Pi-hole: {e}")
+        return False
+
+
 def sync_pihole_blocks(domains, enable_block: bool = True):
     """
     Sincroniza los dominios detectados en la tabla `domainlist` de `gravity.db`
     bajo el comentario `[HEURISTIC_SHIELD]` y recarga Pi-hole solo si hubo cambios.
-    Asegura consultar y actualizar exclusivamente entradas de tipo bloqueo (type = 0).
-    Respeta estrictamente la lista blanca definida por el usuario.
+    Asegura consultar y registrar entradas de tipo bloqueo exacto (type = 1 en Pi-hole).
+    Respeta estrictamente la lista blanca de usuario y la lista blanca del sistema (gaming/infra).
     """
     ruta_grav = resolver_ruta_gravity(GRAVITY_DB)
     if not os.path.exists(ruta_grav):
@@ -154,6 +256,7 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     applied_domains = []
     changed = False
     user_wl = set(get_user_whitelist())
+    sys_wl = obtener_whitelist_completa()
 
     try:
         conn = sqlite3.connect(ruta_grav, timeout=10.0)
@@ -169,9 +272,9 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
                 if cursor.rowcount > 0:
                     changed = True
             else:
-                # Modo Escudo (Protección Activa): reactivar bloqueos previos
+                # Modo Escudo (Protección Activa): reactivar bloqueos previos garantizando type=1
                 cursor.execute(
-                    "UPDATE domainlist SET enabled = 1 WHERE comment = ? AND enabled = 0",
+                    "UPDATE domainlist SET enabled = 1, type = 1 WHERE comment = ? AND (enabled = 0 OR type = 0)",
                     (HEURISTIC_TAG,),
                 )
                 if cursor.rowcount > 0:
@@ -190,28 +293,30 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
                     dom_clean = str(dom or "").strip().lower().rstrip(".")
                     if not dom_clean:
                         continue
-                    # Si el usuario lo marcó como permitido, omitirlo
+                    # Si el usuario o el sistema (gaming, CDNs, infra) lo marcaron como permitido, NUNCA bloquear
                     if dom_clean in user_wl or any(dom_clean.endswith("." + w) for w in user_wl):
                         continue
+                    if any(dom_clean == base or dom_clean.endswith("." + base) for base in sys_wl):
+                        continue
 
+                    # En Pi-hole: type=1 es Exact Denylist (bloqueo exacto)
                     row = cursor.execute(
-                        "SELECT id, enabled, comment FROM domainlist WHERE domain = ? AND type = 0",
-                        (dom_clean,),
+                        "SELECT id, enabled, comment, type FROM domainlist WHERE domain = ? AND comment = ?",
+                        (dom_clean, HEURISTIC_TAG),
                     ).fetchone()
 
                     if row is None:
                         cursor.execute(
-                            "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (0, ?, 1, ?)",
+                            "INSERT INTO domainlist (type, domain, enabled, comment) VALUES (1, ?, 1, ?)",
                             (dom_clean, HEURISTIC_TAG),
                         )
                         applied_domains.append(dom_clean)
                         changed = True
                     else:
-                        if row[1] == 0:
-                            comment = HEURISTIC_TAG if not row[2] or row[2] == HEURISTIC_TAG else row[2]
+                        if row[1] == 0 or row[3] != 1:
                             cursor.execute(
-                                "UPDATE domainlist SET enabled = 1, comment = ? WHERE id = ?",
-                                (comment, row[0]),
+                                "UPDATE domainlist SET enabled = 1, type = 1 WHERE id = ?",
+                                (row[0],),
                             )
                             changed = True
                         applied_domains.append(dom_clean)
@@ -238,6 +343,10 @@ def get_sentinel_status(forzar: bool = False) -> dict:
     excluyendo las excepciones permitidas por el usuario.
     """
     mode = get_sentinel_mode()
+    try:
+        ensure_pihole_gaming_whitelist()
+    except Exception:
+        pass
     reporte = analizar_red(forzar_refresco=forzar)
 
     # Inyectar el modo y la lista blanca de usuario

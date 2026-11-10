@@ -760,6 +760,7 @@ def save_pihole_pack_schedule(payload: PackSchedulePayload):
 # ── SafeLock Heuristic Sentinel (Persona 2: El Conector) ─────────────────────
 from sentinel_connector import (
     add_to_user_whitelist,
+    ensure_pihole_gaming_whitelist,
     get_sentinel_diagnostics,
     get_sentinel_honeypot_alerts,
     get_sentinel_status,
@@ -768,6 +769,12 @@ from sentinel_connector import (
     sync_pihole_blocks,
     update_sentinel_mode,
 )
+
+# Inicializar configuración preventiva de gaming en Pi-hole
+try:
+    ensure_pihole_gaming_whitelist()
+except Exception:
+    pass
 
 
 class SentinelModePayload(BaseModel):

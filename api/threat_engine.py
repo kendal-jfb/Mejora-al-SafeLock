@@ -145,30 +145,49 @@ WHITELIST_DOMINIOS = {
     "twitch.tv", "twitchsvc.net", "jtvnw.net",
     "youtube.com", "youtu.be",
     "hulu.com", "disneyplus.com", "max.com",
-    # Gaming — Epic Games
-    "epicgames.com", "epicgames-dns.com", "unrealengine.com", "on.epicgames.com",
-    # Gaming — EA / FIFA / Origin
+    # Gaming — Epic Games & Fortnite
+    "fortnite.com", "epicgames.com", "epicgames.dev", "api.epicgames.dev",
+    "et.epicgames.dev", "dev.epicgames.com", "epicgames.net", "epicgames-dns.com",
+    "unrealengine.com", "on.epicgames.com", "ol.epicgames.com", "fn.gg",
+    "tracking.epicgames.com", "datarouter.ol.epicgames.com",
+    # Anti-Cheat (EAC, BattlEye, Vanguard)
+    "easyanticheat.net", "easy.ac", "eac-cdn.com", "eac-game.com",
+    "battleye.com", "anticheat.net", "riot-vanguard.com",
+    # Gaming Voice Chat & Comms
+    "vivox.com", "vxa.vivox.com",
+    # Gaming — Activision / Blizzard / Call of Duty
+    "activision.com", "blizzard.com", "battle.net", "callofduty.com", "demonware.net",
+    # Gaming — EA / FIFA / Apex Legends
     "ea.com", "easports.com", "origin.com", "eaassets-a.akamaihd.net", "fifa.com", "eafc.com",
+    "playapex.com", "respawn.com",
     # Gaming — Steam / Valve
     "steampowered.com", "steam.com", "steamcommunity.com",
-    "steamcontent.com", "steamstatic.com", "steamstore-a.akamaihd.net", "valvesoftware.com",
+    "steamcontent.com", "steamstatic.com", "steamstore-a.akamaihd.net",
+    "valvesoftware.com", "steamserver.net", "steamgames.com", "steam-chat.com",
     # Gaming — Riot / LoL / Valorant
     "riotgames.com", "leagueoflegends.com", "playvalorant.com",
     "riotgames.net", "rgpub.io", "riotcdn.net", "pvp.net",
-    # Gaming — Activision / Blizzard / COD
-    "activision.com", "blizzard.com", "battle.net", "callofduty.com",
     # Gaming — PlayStation / Sony
     "playstation.com", "playstation.net", "sonyentertainmentnetwork.com",
     "dualshockers.com", "dl.playstation.net",
     # Gaming — Ubisoft
     "ubisoft.com", "ubisoftconnect.com", "ubi.com",
     # Gaming — Nintendo
-    "nintendo.com", "nintendo.net", "nintendolife.com",
+    "nintendo.com", "nintendo.net", "nintendolife.com", "nintendowifi.net",
     # Gaming — Minecraft / Mojang / Microsoft Gaming
     "minecraft.net", "mojang.com", "minecraftservices.com",
-    "xboxlive.com", "msftconnecttest.com",
+    "xbox.com", "xboxlive.com", "xboxservices.com", "playfabapi.com", "msftconnecttest.com",
     # Gaming — Roblox
-    "roblox.com", "rbxcdn.com", "robloxlabs.com",
+    "roblox.com", "rbxcdn.com", "robloxlabs.com", "rbx.com",
+    # Gaming — PUBG / Krafton
+    "pubg.com", "krafton.com", "pubgmobile.com",
+    # Gaming — Rockstar Games (GTA Online)
+    "rockstargames.com", "rsg.sc",
+    # Gaming — Mobile (Supercell, Genshin/HoYoverse)
+    "supercell.com", "supercell.net",
+    "hoyoverse.com", "mihoyo.com", "genshinimpact.com", "starrails.com",
+    # Auth & Captcha Services (Login verification)
+    "arkoselabs.com", "hcaptcha.com",
     # IoT / Smart TV / Dispositivos del hogar
     "samsung.com", "samsungelectronics.com",
     "lg.com", "lgelectronics.com",

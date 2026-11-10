@@ -114,25 +114,32 @@ def limpiar_queries():
 
 
 GAMING_DOMAINS = [
-    # Epic Games
-    "epicgames.com", "epicgames-dns.com", "cdn.epicgames.com",
-    "launcher.epicgames.com", "account.epicgames.com",
-    # EA / FIFA
+    # Fortnite & Epic Games
+    "fortnite.com", "matchmaking.fortnite.com", "events.fortnite.com",
+    "epicgames.com", "epicgames.dev", "api.epicgames.dev", "et.epicgames.dev",
+    "launcher.epicgames.com", "account.epicgames.com", "tracking.epicgames.com",
+    "datarouter.ol.epicgames.com", "cdn.epicgames.com", "fn.gg",
+    # Anti-Cheat (EAC, BattlEye)
+    "easyanticheat.net", "easy.ac", "eac-cdn.com", "battleye.com",
+    # Voice chat
+    "vivox.com", "vxa.vivox.com",
+    # EA / FIFA / Apex
     "ea.com", "easports.com", "o10n.ea.com", "dm.origin.com",
-    "accounts.ea.com", "eaassets-a.akamaihd.net",
+    "accounts.ea.com", "eaassets-a.akamaihd.net", "playapex.com", "respawn.com",
     # Steam / Valve
     "steampowered.com", "steam.com", "store.steampowered.com",
     "steamcommunity.com", "steamcontent.com", "cdn.steamcontent.com",
+    "valvesoftware.com", "steamserver.net",
     # Riot / LoL / Valorant
     "riotgames.com", "leagueoflegends.com", "playvalorant.com",
-    "na.leagueoflegends.com", "auth.riotgames.com",
+    "na.leagueoflegends.com", "auth.riotgames.com", "riotcdn.net",
     # Activision / COD / Blizzard
     "activision.com", "blizzard.com", "battle.net",
-    "us.battle.net", "agent.battle.net",
+    "us.battle.net", "agent.battle.net", "demonware.net",
     # PlayStation
     "playstation.com", "playstation.net", "sonyentertainmentnetwork.com",
     # Xbox / Microsoft Gaming
-    "xbox.com", "xboxlive.com", "login.live.com",
+    "xbox.com", "xboxlive.com", "login.live.com", "playfabapi.com",
     # Nintendo
     "nintendo.com", "accounts.nintendo.com", "eshop.nintendo.net",
     # Ubisoft
@@ -141,6 +148,8 @@ GAMING_DOMAINS = [
     "minecraft.net", "mojang.com", "api.minecraftservices.com",
     # Roblox
     "roblox.com", "rbxcdn.com", "robloxlabs.com",
+    # PUBG & Mobile
+    "pubg.com", "supercell.com", "hoyoverse.com",
     # Otros populares
     "twitch.tv", "discord.com", "discord.gg",
 ]

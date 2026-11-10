@@ -245,7 +245,7 @@ const PACK_DETAILS = [
   { id: "PACK_FAMILY", name: "Family Shield", desc: "Bloqueo de pornografía, apuestas y violencia", icon: <Icon.Shield s={20}/>, color: "var(--teal-brt)" },
   { id: "PACK_DETOX", name: "Modo Concentración", desc: "Bloquea redes sociales (TikTok, IG, FB)", icon: <Icon.Monitor s={20}/>, color: "var(--amber)" },
   { id: "PACK_PRIVACY", name: "Modo UltraConcentración", desc: "Filtro estricto de telemetría y Smart TVs", icon: <Icon.Eye s={20}/>, color: "var(--teal-brt)" },
-  { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" }
+  { id: "PACK_GAMES", name: "Filtro Anti-Juegos", desc: "Bloquea Fortnite, Roblox, Minecraft, Epic Games", icon: <Icon.Activity s={20}/>, color: "var(--red)" }
 ];
 
 // ── Modales ────────────────────────────────────────────────────────────────────
