@@ -198,6 +198,48 @@ WHITELIST_DOMINIOS = {
     "dropbox.com", "dropboxstatic.com",
     "zoom.us", "zoomgov.com",
     "slack.com", "slack-msgs.com",
+    # Gaming — subdominios de Epic Games conocidos (matchmaking, telemetría obligatoria)
+    "lightswitch-public-service-prod06.ol.epicgames.com",
+    "account-public-service-prod.ol.epicgames.com",
+    "friends-public-service-prod.ol.epicgames.com",
+    "eulatracking-public-service-prod-m.ol.epicgames.com",
+    "entitlement-public-service-prod08.ol.epicgames.com",
+    "fulfillment-public-service-prod.ol.epicgames.com",
+    "catalog-public-service-prod06.ol.epicgames.com",
+    "cloudstorage-public-service-prod.ol.epicgames.com",
+    "user-public-service-prod.ol.epicgames.com",
+    "fn-ds.epicgames.com",
+    # Gaming — Activision / CoD extras
+    "demonware.net", "cod.com", "modernwarfare.com",
+    # Gaming — EA extras
+    "eafc.com", "ea-dns.com", "cdn.ea.com",
+    # Gaming — Steam extras
+    "cm.steampowered.com", "steamstatic.com",
+    # Gaming — Rockstar / 2K / Take-Two
+    "rockstar.com", "2k.com", "take2games.com", "taketwo.com",
+    # Gaming — Bethesda / id Software
+    "bethesda.net", "bethesda.com", "bethsoft.com",
+    # Gaming — Bandai Namco
+    "bandainamcoent.com", "bandainamco-ue.com",
+    # Gaming — Nintendo extras
+    "nintendowifi.net", "nintendolife.com",
+    # Gaming — Minecraft extras
+    "xboxservices.com", "playfabapi.com", "msftconnecttest.com",
+    # Gaming — Roblox extras
+    "robloxlabs.com", "rbx.com",
+    # Gaming — PUBG extras
+    "pubgmobile.com", "krafton.com",
+    # Gaming — HoYoverse extras
+    "genshinimpact.com", "starrails.com",
+    # Gaming — Voice chat
+    "vxa.vivox.com", "tox.vivox.com",
+    # Gaming — Anti-cheat extras
+    "eac-cdn.com", "eac-game.com", "anticheat.net", "riot-vanguard.com",
+    "xigncode.com", "ngs.nexon.com",
+    # Gaming — PlayStation extras
+    "np.playstation.net", "dl.playstation.net",
+    # Gaming — Ubisoft extras
+    "ubisoftconnect.com", "ubisoft.net",
 }
 
 EXTENSIONES_SOSPECHOSAS = {
@@ -827,7 +869,7 @@ def analizar_red(forzar_refresco=False):
         })
 
     reporte = {
-        "mode": "shadow",  # Modo por defecto (Sombra / Auditoría)
+        "mode": "protect",  # El modo real lo sobreescribe sentinel_connector; protect es el default
         "last_run": datetime.now().isoformat(),
         "analizado_en": datetime.now().isoformat(),
         "total_dispositivos": len(resultado_dispositivos),

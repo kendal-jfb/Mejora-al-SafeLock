@@ -620,7 +620,7 @@ function DevicesView() {
 // Estado vacío que se muestra cuando la API aún no ha respondido o hay un error.
 // No contiene dispositivos ficticios para no confundir al usuario final.
 const SENTINEL_EMPTY = {
-  mode: "shadow",
+  mode: "protect",
   last_run: null,
   devices: [],
 };
@@ -651,7 +651,6 @@ function HeuristicView() {
   const offline = error || (!loading && !data?.devices);
   const info = offline ? SENTINEL_EMPTY : (data || SENTINEL_EMPTY);
   const [modeDraft, setModeDraft] = useState(null);
-  const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState("");
@@ -663,7 +662,7 @@ function HeuristicView() {
       setModeDraft(null);
     }
   }, [data?.mode, modeDraft]);
-  const mode = modeDraft ?? info.mode ?? "shadow";
+  const mode = modeDraft ?? info.mode ?? "protect";
   const protect = mode === "protect";
   const devices = info.devices || [];
   const count = (st) => devices.filter(d => d.state === st).length;
@@ -688,7 +687,7 @@ function HeuristicView() {
   };
 
   const applyMode = async (next) => {
-    setSaving(true); setMsg(""); setConfirming(false);
+    setSaving(true); setMsg("");
     try {
       const r = await fetch(`${API}/sentinel/mode`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ mode: next }) });
       if (!r.ok) throw new Error();
@@ -697,7 +696,7 @@ function HeuristicView() {
       setMsg("No se pudo cambiar el modo. Intenta de nuevo.");
     } finally { setSaving(false); }
   };
-  const onToggle = () => (protect ? applyMode("shadow") : setConfirming(true));
+  const onToggle = () => applyMode(protect ? "shadow" : "protect");
 
   const allowDomain = async (dom) => {
     setUnblockingDomain(dom);
@@ -765,12 +764,12 @@ function HeuristicView() {
         <div style={{ padding:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
           <div style={{ flex:"1 1 260px", minWidth:0 }}>
             <div style={{ fontSize:15, fontWeight:600, color:"var(--title)" }}>
-              {protect ? "Protección activa" : "Modo Sombra (auditoría)"}
+              {protect ? "Protección activa" : "Modo Sombra (solo auditoría)"}
             </div>
             <div style={{ fontSize:13, color:"var(--text3)", marginTop:6, lineHeight:1.5 }}>
               {protect
-                ? "Los dominios sospechosos se bloquean automáticamente para toda la red."
-                : "Solo avisa: no bloquea nada. Útil para revisar falsos positivos antes de activar la protección."}
+                ? "Los dominios sospechosos se bloquean automáticamente para toda la red. El motor heurístico siempre analiza en segundo plano."
+                : "Solo monitorea y avisa sin bloquear nada. Útil para revisar falsos positivos antes de activar la protección."}
             </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -779,15 +778,6 @@ function HeuristicView() {
             <span style={{ fontFamily:"var(--mono)", fontSize:10, color:protect?"var(--teal-brt)":"var(--text4)", textTransform:"uppercase" }}>Protección</span>
           </div>
         </div>
-        {confirming && (
-          <div style={{ padding:"14px 20px", borderTop:"1px solid var(--amber)", background:"var(--amber-dim)", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
-            <span style={{ fontSize:13, color:"var(--text)" }}>¿Activar el bloqueo automático? Un falso positivo podría bloquear un sitio legítimo.</span>
-            <span style={{ display:"flex", gap:8 }}>
-              <button onClick={()=>setConfirming(false)} style={{ background:"var(--bg2)", color:"var(--text)", border:"1px solid var(--border)", borderRadius:6, padding:"8px 14px", fontSize:12, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={()=>applyMode("protect")} style={{ background:"var(--teal-brt)", color:"#000", border:"none", borderRadius:6, padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Activar</button>
-            </span>
-          </div>
-        )}
         {msg && <div style={{ padding:"10px 20px", fontSize:12, color:"var(--red)", borderTop:"1px solid var(--border)" }}>{msg}</div>}
       </Panel>
 
