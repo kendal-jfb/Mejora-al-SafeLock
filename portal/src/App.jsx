@@ -68,6 +68,13 @@ function wasSeenWithinLast24Hours(dt) {
   return Date.now() - lastSeenAt <= 24 * 60 * 60 * 1000;
 }
 
+function wasSeenWithin7Days(dt) {
+  if (!dt) return false;
+  const lastSeenAt = new Date(dt).getTime();
+  if (Number.isNaN(lastSeenAt)) return false;
+  return Date.now() - lastSeenAt <= 7 * 24 * 60 * 60 * 1000;
+}
+
 function devIcon(vendor = "", type = "") {
   const v = (vendor + type).toLowerCase();
   if (v.includes("apple") || v.includes("iphone") || v.includes("ipad"))
@@ -544,20 +551,27 @@ const lineData = useMemo(() => {
 function DevicesView() {
   const { data, loading } = useAPI("/devices", 30000);
   const [search, setSearch] = useState("");
-  const devs = useMemo(() => (
-    (data?.devices || []).filter((d) => {
-      const shouldShowByStatus = d.devStatus === 1 || wasSeenWithinLast24Hours(d.devLastConnection);
-      if (!shouldShowByStatus) return false;
+  const devs = useMemo(() => {
+    const all = data?.devices || [];
+    const filtered = all.filter((d) => {
+      // Mostrar: online ahora, o visto en últimas 7 días, o si devLastConnection existe
+      const isOnline = d.devStatus === 1;
+      const hasConnection = Boolean(d.devLastConnection);
+      const seenRecently = wasSeenWithin7Days(d.devLastConnection);
+      const shouldShow = isOnline || seenRecently || hasConnection;
+      if (!shouldShow) return false;
       if (!search) return true;
-
       const query = search.toLowerCase();
       return (
         (d.devName && d.devName.toLowerCase().includes(query)) ||
         (d.devLastIP && d.devLastIP.includes(search)) ||
         (d.devVendor && d.devVendor.toLowerCase().includes(query))
       );
-    })
-  ), [data, search]);
+    });
+    // Si el filtro devuelve vacío pero hay datos, mostrar todos (fallback)
+    if (filtered.length === 0 && all.length > 0 && !search) return all;
+    return filtered;
+  }, [data, search]);
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
       <div style={{ position:"relative" }}>
@@ -652,7 +666,6 @@ function HeuristicView() {
   const info = offline ? SENTINEL_EMPTY : (data || SENTINEL_EMPTY);
   const [modeDraft, setModeDraft] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState("");
   const [unblockingDomain, setUnblockingDomain] = useState(null);
   const [unblockedDomains, setUnblockedDomains] = useState({});
@@ -667,24 +680,6 @@ function HeuristicView() {
   const devices = info.devices || [];
   const count = (st) => devices.filter(d => d.state === st).length;
   const alerts = devices.filter(d => d.state !== "green");
-
-  const manualRefresh = async () => {
-    setRefreshing(true);
-    setMsg("");
-    try {
-      const r = await fetch(`${API}/sentinel/refresh`, { method: "POST" });
-      if (r.ok) {
-        const fresh = await r.json();
-        setData(fresh);
-      } else {
-        await refetch();
-      }
-    } catch {
-      await refetch();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const applyMode = async (next) => {
     setSaving(true); setMsg("");
@@ -734,32 +729,11 @@ function HeuristicView() {
           <div style={{ display:"flex", alignItems:"center", gap:8, fontFamily:"var(--mono)", fontSize:12, fontWeight:700, color: protect ? "var(--teal-brt)" : "var(--title)" }}>
             <Icon.Bug s={16}/> PROTECCIÓN HEURÍSTICA ({protect ? "ESCUDO ACTIVO" : "MODO SOMBRA"})
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            {info.analizado_en && (
-              <span style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)" }}>
-                Escaneado {timeAgo(info.analizado_en)}
-              </span>
-            )}
-            <button
-              onClick={manualRefresh}
-              disabled={refreshing}
-              style={{
-                background:"var(--bg3)",
-                color:"var(--teal-brt)",
-                border:"1px solid var(--teal-brt)",
-                borderRadius:6,
-                padding:"5px 12px",
-                fontSize:11,
-                fontWeight:600,
-                cursor: refreshing ? "wait" : "pointer",
-                display:"flex",
-                alignItems:"center",
-                gap:6
-              }}
-            >
-              <Icon.Activity s={12}/> {refreshing ? "Escaneando…" : "↻ Analizar red ahora"}
-            </button>
-          </div>
+          {info.analizado_en && (
+            <span style={{ fontFamily:"var(--mono)", fontSize:10, color:"var(--text4)" }}>
+              Escaneado {timeAgo(info.analizado_en)}
+            </span>
+          )}
         </div>
         <div style={{ padding:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap" }}>
           <div style={{ flex:"1 1 260px", minWidth:0 }}>

@@ -575,9 +575,14 @@ def get_sentinel_status(forzar: bool = False) -> dict:
                 if d_c not in user_wl and not any(d_c.endswith("." + w) for w in user_wl):
                     dominios_sospechosos.append(d_c)
 
-    if mode == "protect" and dominios_sospechosos:
-        bloqueados = sync_pihole_blocks(dominios_sospechosos, enable_block=True)
+    if mode == "protect":
+        if dominios_sospechosos:
+            bloqueados = sync_pihole_blocks(dominios_sospechosos, enable_block=True)
+        else:
+            bloqueados = []
     else:
+        # Modo sombra: desactivar TODOS los bloqueos heurísticos activos en Pi-hole
+        sync_pihole_blocks([], enable_block=False)
         bloqueados = []
 
     # Dominios bloqueados totales visibles en el panel (Heurísticos + Pi-hole + Globales)
