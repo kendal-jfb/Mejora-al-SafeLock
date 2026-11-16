@@ -247,6 +247,18 @@ EXTENSIONES_SOSPECHOSAS = {
     ".work", ".icu", ".cc", ".cn", ".biz"
 }
 
+# Patrones de subdominios de gaming/CDN que aunque parezcan aleatorios son legítimos.
+# Evita falsos positivos con juegos que usan hashes o UUIDs en subdominios.
+_GAMING_CDN_PREFIJOS = (
+    "cdn", "dl", "patch", "update", "download", "content",
+    "assets", "static", "media", "images", "img", "files",
+    "telemetry", "analytics", "metrics", "log", "logs",
+    "matchmaking", "lobby", "game", "play", "api",
+    "auth", "account", "login", "session", "prod",
+    "ds", "relay", "turn", "stun", "voice", "chat",
+    "p2p", "peer", "nat", "region", "edge",
+)
+
 
 def obtener_whitelist_completa() -> set:
     """
@@ -592,6 +604,18 @@ def es_nombre_dga(dominio):
         if dominio_clean == base or dominio_clean.endswith("." + base):
             return False
 
+    # Filtro anti-falso-positivo para gaming/CDN:
+    # Si el subdominio más a la izquierda es un prefijo típico de servicios legítimos,
+    # asumir que es legítimo aunque el hash/UUID parezca aleatorio.
+    partes_tmp = dominio_clean.split(".")
+    if len(partes_tmp) >= 2 and partes_tmp[0].lower() in _GAMING_CDN_PREFIJOS:
+        return False
+
+    # Descartar SLDs puramente numéricos (servidores de juegos con IDs numéricos)
+    sld_tmp = partes_tmp[-2] if len(partes_tmp) >= 2 else ""
+    if sld_tmp.isdigit():
+        return False
+
     partes = dominio_clean.split(".")
     if len(partes) < 2:
         return False
@@ -754,7 +778,10 @@ def calcular_riesgo(bloqueados, ejemplos_bloqueados, beaconing, dga, nxdomain_ra
     puntuacion = min(100, puntuacion)
 
     # Asignación del semáforo
-    if puntuacion >= 60:
+    # Umbral de BLOQUEO (red) intencionalmente alto (80) para evitar falsos positivos
+    # con juegos desconocidos que usan IPs/dominios no estándar.
+    # El semáforo amarillo alerta siempre; el rojo es el único que desencadena bloqueo.
+    if puntuacion >= 80:
         riesgo = "peligro"
         state = "red"
     elif puntuacion >= 21:

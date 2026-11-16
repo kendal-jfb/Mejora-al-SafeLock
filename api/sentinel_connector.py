@@ -118,13 +118,14 @@ def remove_from_user_whitelist(domain: str) -> list:
 
 
 def get_sentinel_mode() -> str:
-    """Lee el modo actual desde la configuración persistida ('protect' por defecto).
-    El modo predeterminado es 'protect' (Protección Activa) para garantizar que
-    el Heuristic Sentinel esté siempre bloqueando amenazas sin requerir activación manual.
+    """Lee el modo actual desde la configuración persistida.
+    Por defecto es 'shadow' (solo alertas, sin bloqueos) para ser no-intrusivo.
+    'protect' debe activarse explícitamente por el usuario.
     """
     config = load_full_config()
-    mode = str(config.get("sentinel_mode", "protect") or "protect").strip().lower()
-    return mode if mode in ALLOWED_MODES else "protect"
+    # Si la clave no existe aún en config, usar shadow como valor seguro
+    mode = str(config.get("sentinel_mode", "shadow") or "shadow").strip().lower()
+    return mode if mode in ALLOWED_MODES else "shadow"
 
 
 def reload_pihole_dns() -> bool:
@@ -455,7 +456,13 @@ def sync_pihole_blocks(domains, enable_block: bool = True):
     bajo el comentario `[HEURISTIC_SHIELD]` y recarga Pi-hole solo si hubo cambios.
     Asegura consultar y registrar entradas de tipo bloqueo exacto (type = 1 en Pi-hole).
     Respeta estrictamente la lista blanca de usuario y la lista blanca del sistema (gaming/infra).
+
+    IMPORTANTE: Si enable_block=False (modo sombra), NUNCA se bloquea nada.
+    Este guard es la última línea de defensa antes de tocar gravity.db.
     """
+    # Guard de modo sombra: si no se debe bloquear, solo desactivar reglas previas
+    if not enable_block:
+        domains = []  # Ignorar cualquier dominio recibido — solo desactivar
     ruta_grav = resolver_ruta_gravity(GRAVITY_DB)
     if not os.path.exists(ruta_grav):
         return []
@@ -561,9 +568,14 @@ def get_sentinel_status(forzar: bool = False) -> dict:
     user_wl = set(get_user_whitelist())
     reporte["user_whitelist"] = sorted(list(user_wl))
 
-    # Recolectar todos los dominios sospechosos (DGA y Beaconing) excluyendo whitelist de usuario
+    # Recolectar dominios sospechosos SOLO de dispositivos en estado RED (peligro confirmado).
+    # Los dispositivos en amarillo (sospechoso) solo alertan, nunca provocan bloqueo.
+    # Esto evita falsos positivos con juegos desconocidos que usan dominios raros.
     dominios_sospechosos = []
     for dev in reporte.get("devices", []):
+        # Solo bloquear si el motor confirmó peligro real (state = "red")
+        if dev.get("state") != "red":
+            continue
         for dom in dev.get("dga_domains", []):
             if dom:
                 d_c = dom.strip().lower().rstrip(".")
@@ -580,8 +592,11 @@ def get_sentinel_status(forzar: bool = False) -> dict:
             bloqueados = sync_pihole_blocks(dominios_sospechosos, enable_block=True)
         else:
             bloqueados = []
+            # En modo protect sin dominios nuevos, asegurar que las reglas previas siguen activas
+            sync_pihole_blocks([], enable_block=True)
     else:
-        # Modo sombra: desactivar TODOS los bloqueos heurísticos activos en Pi-hole
+        # Modo sombra: desactivar TODOS los bloqueos heurísticos activos en Pi-hole.
+        # Solo se alerta, nunca se bloquea. Guard adicional en sync_pihole_blocks.
         sync_pihole_blocks([], enable_block=False)
         bloqueados = []
 
